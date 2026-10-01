@@ -3,7 +3,7 @@ const path = require('path');
 const AdmZip = require('adm-zip');
 const paths = require('./paths');
 const { readJson, writeJson } = require('./util');
-const { fetchJson, downloadFile, runPool } = require('./http');
+const { LAUNCHER_VERSION, fetchJson, downloadFile, runPool } = require('./http');
 const { ensureJava } = require('./java');
 
 const MANIFEST_URL = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
@@ -249,7 +249,7 @@ function buildArgs(version, install, gameDir, settings, account, options = {}) {
     classpath,
     classpath_separator: path.delimiter,
     launcher_name: 'hojicha-launcher',
-    launcher_version: '0.1.0',
+    launcher_version: LAUNCHER_VERSION,
     quickPlayMultiplayer: options.join || '',
   };
   const features = { is_quick_play_multiplayer: Boolean(options.join) };

@@ -123,6 +123,12 @@ function renderMain() {
   if (showInstance) renderInstance();
 }
 
+// The installed mods changed: Browse reloads (keeping the search text) the next time it is shown,
+// so its "Installed" labels are never stale.
+function invalidateSearch() {
+  state.search.done = false;
+}
+
 // Forget the previous instance's results; the Browse tab loads fresh ones the next time it is shown.
 function resetSearch() {
   state.search = { query: '', type: $('#search-type').value, offset: 0, total: 0, done: false };
@@ -231,6 +237,7 @@ async function loadMods() {
     const remove = el('button', { className: 'quiet danger', textContent: 'Remove' });
     remove.onclick = async () => {
       await api.removeMod(inst.id, mod.file);
+      invalidateSearch();
       loadMods();
     };
     let version;
@@ -293,6 +300,7 @@ async function openVersionPicker(inst, mod) {
         errorEl.textContent = '';
         try {
           const result = await api.setModVersion(inst.id, mod.file, v.id);
+          invalidateSearch(); // a new version can pull in extra dependencies
           $('#versions-dialog').close();
           await loadMods();
           state.status[inst.id] = { state: 'idle', text: `${result.title} is now on version ${result.versionNumber}.` };
@@ -370,7 +378,9 @@ async function runSearch(append) {
 
   const request = ++searchRequest;
   // First load for this instance: say what's coming. Later searches keep the old results until new ones arrive.
-  if (!append && !s.done) results.replaceChildren(emptyRow(`Loading popular ${SEARCH_NOUNS[s.type]}…`));
+  if (!append && !s.done) {
+    results.replaceChildren(emptyRow(s.query ? `Searching for "${s.query}"…` : `Loading popular ${SEARCH_NOUNS[s.type]}…`));
+  }
   let page;
   s.loading = true;
   try {

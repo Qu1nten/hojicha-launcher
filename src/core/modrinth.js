@@ -12,8 +12,26 @@ function installedProjects(instance) {
   return new Set(Object.values(instance.content).map((c) => c.projectId));
 }
 
+// Forgets records whose file is gone (e.g. deleted in Explorer), so they no longer count as installed.
+function pruneMissing(instance) {
+  const gameDir = instances.gameDir(instance.id);
+  let changed = false;
+  for (const rel of Object.keys(instance.content)) {
+    if (!fs.existsSync(path.join(gameDir, rel))) {
+      delete instance.content[rel];
+      changed = true;
+    }
+  }
+  if (changed) instances.save(instance);
+  return instance;
+}
+
+function loadInstance(id) {
+  return pruneMissing(instances.get(id));
+}
+
 async function search(id, query, type = 'mod', offset = 0) {
-  const instance = instances.get(id);
+  const instance = loadInstance(id);
   const facets = [[`project_type:${type}`], [`versions:${instance.gameVersion}`]];
   if (type === 'mod') facets.push([`categories:${instance.loader}`]);
   // With no search text, show the most downloaded projects instead of an arbitrary "relevance" order.
@@ -36,7 +54,6 @@ async function search(id, query, type = 'mod', offset = 0) {
   };
 }
 
-// Newest version of a project that fits the instance, preferring full releases over betas.
 // All versions of a project that work with the instance (its Minecraft version, and loader for mods), newest first.
 function compatibleVersions(instance, projectId, type) {
   const params = new URLSearchParams({ game_versions: JSON.stringify([instance.gameVersion]) });
@@ -91,7 +108,7 @@ async function installVersion(instance, version, type, report, visited) {
 
 // Installs a project (and, for mods, its required dependencies) into the instance.
 async function install(id, projectId, type = 'mod', report = () => {}) {
-  const instance = instances.get(id);
+  const instance = loadInstance(id);
   if (type === 'mod' && instance.loader === 'vanilla') throw new Error('Vanilla instances cannot load mods. Create a Fabric instance.');
   const version = await pickVersion(instance, projectId, type);
   try {
@@ -104,7 +121,7 @@ async function install(id, projectId, type = 'mod', report = () => {}) {
 
 // Lists every file in the instance's mods folder, with Modrinth info where we have it.
 function listMods(id) {
-  const instance = instances.get(id);
+  const instance = loadInstance(id);
   const modsDir = path.join(instances.gameDir(id), 'mods');
   if (!fs.existsSync(modsDir)) return [];
   return fs.readdirSync(modsDir)
@@ -130,7 +147,7 @@ function modrinthMeta(instance, file) {
 
 // Every version of an installed mod that works with the instance, newest first.
 async function listModVersions(id, file) {
-  const instance = instances.get(id);
+  const instance = loadInstance(id);
   const meta = modrinthMeta(instance, file);
   const versions = await compatibleVersions(instance, meta.projectId, 'mod');
   return versions.map((v) => ({
@@ -144,7 +161,7 @@ async function listModVersions(id, file) {
 
 // Swaps an installed mod for another of its versions (plus any required dependencies that version adds).
 async function setModVersion(id, file, versionId, report = () => {}) {
-  const instance = instances.get(id);
+  const instance = loadInstance(id);
   const meta = modrinthMeta(instance, file);
   const version = await fetchJson(`${API}/version/${encodeURIComponent(versionId)}`);
   if (version.project_id !== meta.projectId) throw new Error('That version belongs to a different mod.');
@@ -158,7 +175,7 @@ async function setModVersion(id, file, versionId, report = () => {}) {
 
 function removeMod(id, file) {
   if (file.includes('/') || file.includes('\\')) throw new Error('Invalid file name');
-  const instance = instances.get(id);
+  const instance = loadInstance(id);
   fs.rmSync(path.join(instances.gameDir(id), 'mods', file), { force: true });
   delete instance.content[`mods/${file}`];
   instances.save(instance);
