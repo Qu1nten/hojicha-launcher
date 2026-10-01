@@ -140,11 +140,13 @@ async function minecraftLogin(msAccessToken) {
   }
   if (!profile.ok) throw new AuthError(`Could not load your Minecraft profile (HTTP ${profile.status}).`, 'profile');
 
+  const skin = (profile.data.skins || []).find((s) => s.state === 'ACTIVE') || profile.data.skins?.[0];
   return {
     accessToken,
     expiresAt: Date.now() + (mc.data.expires_in || 86400) * 1000,
     uuid: profile.data.id,
     name: profile.data.name,
+    skinUrl: skin?.url || null,
   };
 }
 

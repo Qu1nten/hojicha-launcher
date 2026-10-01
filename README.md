@@ -103,5 +103,6 @@ requests, please [open an issue](../../issues).
 
 ## License
 
-[MIT](LICENSE). Minecraft is a trademark of Mojang Synergies AB. Hojicha Launcher is not an official Minecraft
+[MIT](LICENSE). The bundled typeface, Zen Kaku Gothic New, is licensed under the
+[SIL Open Font License 1.1](src/renderer/fonts/OFL.txt). Minecraft is a trademark of Mojang Synergies AB. Hojicha Launcher is not an official Minecraft
 product and is not approved by or associated with Mojang or Microsoft.

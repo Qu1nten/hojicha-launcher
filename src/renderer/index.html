@@ -2,54 +2,72 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self'; font-src 'self'">
   <title>Hojicha Launcher</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <aside id="sidebar">
-    <h1>Hojicha</h1>
-    <div class="side-scroll">
-      <h4>Instances</h4>
-      <ul id="instance-list" class="side-list"></ul>
-      <button id="new-instance">+ New instance</button>
-      <h4>Local servers</h4>
-      <ul id="server-list" class="side-list"></ul>
-      <button id="add-server">+ Add server folder</button>
+    <div class="brand">
+      <img src="../../build/icon.png" alt="" width="30" height="30">
+      <span>Hojicha</span>
     </div>
-    <form id="settings">
-      <label>Account
-        <div class="account-row">
-          <select id="account-select"></select>
-          <button type="button" id="manage-accounts" title="Manage accounts">Manage</button>
-        </div>
-      </label>
-      <label>Memory (MB)
-        <input id="memory" type="number" min="512" step="512">
+
+    <div class="side-scroll">
+      <section class="side-section" aria-labelledby="instances-heading">
+        <h2 id="instances-heading">Instances</h2>
+        <ul id="instance-list" class="side-list"></ul>
+        <button id="new-instance" class="side-add">New instance</button>
+      </section>
+      <section class="side-section" aria-labelledby="servers-heading">
+        <h2 id="servers-heading">Servers</h2>
+        <ul id="server-list" class="side-list"></ul>
+        <button id="add-server" class="side-add">Add server folder</button>
+      </section>
+    </div>
+
+    <div class="side-footer">
+      <button type="button" id="account-chip" class="account-chip" title="Accounts">
+        <span id="account-avatar" class="avatar" aria-hidden="true"></span>
+        <span class="account-text">
+          <span id="account-name" class="account-name">Add an account</span>
+          <span id="account-kind" class="account-kind">Needed to play</span>
+        </span>
+      </button>
+      <label class="memory">
+        <span>Memory</span>
+        <span class="memory-field">
+          <input id="memory" type="number" min="512" step="512" aria-label="Memory in megabytes">
+          <span class="unit">MB</span>
+        </span>
       </label>
       <div id="settings-error" class="error"></div>
-    </form>
-    <p class="disclaimer">Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</p>
+      <p class="disclaimer">Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</p>
+    </div>
   </aside>
 
   <main>
-    <div id="empty" class="empty">Create an instance to get started.</div>
+    <div id="empty" class="empty-state">
+      <p>No instances yet. An instance is a separate copy of the game with its own mods and worlds.</p>
+      <button id="empty-new-instance" class="primary">New instance</button>
+    </div>
 
-    <section id="instance-view" hidden>
-      <header>
-        <div>
-          <h2 id="inst-name"></h2>
-          <div id="inst-meta" class="muted"></div>
+    <section id="instance-view" class="view" hidden>
+      <header class="view-header">
+        <div class="heading">
+          <h1 id="inst-name"></h1>
+          <p id="inst-meta" class="meta"></p>
         </div>
-        <div class="actions">
-          <button id="open-folder">Open folder</button>
-          <button id="delete-instance" class="danger">Delete</button>
-          <button id="play" class="primary">Play</button>
+        <div class="header-actions">
+          <button id="open-folder" class="quiet">Open folder</button>
+          <button id="delete-instance" class="quiet danger">Delete</button>
+          <button id="play" class="play">Play</button>
         </div>
       </header>
-      <div id="status" class="status"></div>
+      <div id="roast" class="roast" aria-hidden="true"><div id="roast-fill" class="roast-fill"></div></div>
+      <p id="status" class="status" role="status"></p>
 
-      <nav class="tabs">
+      <nav class="tabs" aria-label="Instance sections">
         <button data-tab="mods" class="active">Mods</button>
         <button data-tab="browse">Browse Modrinth</button>
         <button data-tab="sync">Sync</button>
@@ -57,116 +75,116 @@
       </nav>
 
       <div class="tab" id="tab-mods">
-        <ul id="mod-list" class="list"></ul>
+        <ul id="mod-list" class="rows"></ul>
       </div>
 
       <div class="tab" id="tab-browse" hidden>
-        <form id="search-form">
-          <select id="search-type">
+        <form id="search-form" class="search">
+          <select id="search-type" aria-label="What to search for">
             <option value="mod">Mods</option>
             <option value="resourcepack">Resource packs</option>
             <option value="shader">Shaders</option>
           </select>
-          <input id="search-query" placeholder="Search Modrinth…" spellcheck="false">
+          <input id="search-query" placeholder="Search Modrinth" spellcheck="false" aria-label="Search Modrinth">
           <button type="submit">Search</button>
         </form>
-        <ul id="search-results" class="list"></ul>
-        <button id="load-more" hidden>Load more</button>
+        <ul id="search-results" class="rows"></ul>
+        <button id="load-more" class="load-more" hidden>Show more results</button>
       </div>
 
       <div class="tab" id="tab-sync" hidden>
-        <p class="muted">Ticked items are shared with every other instance that also ticks them.
-          Folders are shared live; options and server list are copied in at launch and saved back when the game closes.</p>
-        <div id="sync-options"></div>
+        <p class="intro">Share things between instances. Anything you switch on here is shared with every other instance where it's also on.</p>
+        <ul id="sync-options" class="rows"></ul>
         <div id="sync-error" class="error"></div>
       </div>
 
-      <div class="tab" id="tab-log" hidden>
-        <pre id="log"></pre>
+      <div class="tab tab-log" id="tab-log" hidden>
+        <pre id="log" class="console"></pre>
       </div>
     </section>
 
-    <section id="server-view" hidden>
-      <header>
-        <div>
-          <h2 id="srv-name"></h2>
-          <div id="srv-meta" class="muted"></div>
+    <section id="server-view" class="view" hidden>
+      <header class="view-header">
+        <div class="heading">
+          <h1 id="srv-name"></h1>
+          <p id="srv-meta" class="meta"></p>
         </div>
-        <div class="actions">
-          <button id="srv-open-folder">Open folder</button>
-          <button id="srv-remove" class="danger">Remove</button>
+        <div class="header-actions">
+          <button id="srv-open-folder" class="quiet">Open folder</button>
+          <button id="srv-remove" class="quiet danger">Remove</button>
           <button id="srv-toggle">Start</button>
         </div>
       </header>
-      <div id="srv-status" class="status"></div>
+      <p id="srv-status" class="status" role="status"></p>
 
       <div class="join-row">
-        <label class="inline">Join with
-          <select id="srv-instance"></select>
-        </label>
-        <button id="srv-join" class="primary">Start &amp; Join</button>
+        <label class="join-label" for="srv-instance">Join with</label>
+        <select id="srv-instance"></select>
+        <button id="srv-join" class="play">Start and join</button>
       </div>
-      <p class="muted small">Runs on this PC only (127.0.0.1) with offline logins allowed. Your server.properties settings are put back
-        when the server stops, so your own start script keeps working normally. Your selected account is made operator when the server starts.</p>
+      <p class="intro">The server only accepts players on this PC. Your server.properties settings are put back when it stops,
+        so your own start script keeps working. The selected account is made operator.</p>
 
-      <div class="console">
-        <pre id="srv-log"></pre>
+      <div class="console-wrap">
+        <pre id="srv-log" class="console"></pre>
       </div>
-      <form id="srv-command-form">
-        <input id="srv-command" placeholder="Server command, e.g. say hello" spellcheck="false" autocomplete="off">
+      <form id="srv-command-form" class="command">
+        <input id="srv-command" placeholder="Type a server command, like say hello" spellcheck="false" autocomplete="off" aria-label="Server command">
         <button type="submit">Send</button>
       </form>
     </section>
   </main>
 
   <dialog id="new-dialog">
-    <form id="new-form" method="dialog">
-      <h3>New instance</h3>
-      <label>Name <input id="new-name" placeholder="My instance" spellcheck="false"></label>
-      <label>Minecraft version
+    <form id="new-form" method="dialog" class="dialog-body">
+      <h2>New instance</h2>
+      <label class="field">Name
+        <input id="new-name" placeholder="My instance" spellcheck="false">
+      </label>
+      <label class="field">Minecraft version
         <select id="new-version"></select>
       </label>
-      <label class="inline"><input id="new-snapshots" type="checkbox"> Show snapshots</label>
-      <label>Mod loader
+      <label class="check"><input id="new-snapshots" type="checkbox"> Show snapshots</label>
+      <label class="field">Mod loader
         <select id="new-loader">
           <option value="fabric">Fabric</option>
-          <option value="vanilla">Vanilla (no mods)</option>
+          <option value="vanilla">None (vanilla)</option>
         </select>
       </label>
       <div id="new-error" class="error"></div>
-      <div class="actions">
-        <button type="button" id="new-cancel">Cancel</button>
-        <button type="submit" class="primary" id="new-create">Create</button>
+      <div class="dialog-actions">
+        <button type="button" id="new-cancel" class="quiet">Cancel</button>
+        <button type="submit" class="primary" id="new-create">Create instance</button>
       </div>
     </form>
   </dialog>
 
   <dialog id="accounts-dialog">
     <div class="dialog-body">
-      <h3>Accounts</h3>
-      <ul id="account-list" class="list"></ul>
+      <h2>Accounts</h2>
+      <ul id="account-list" class="rows"></ul>
 
       <div id="login-panel" class="login-panel" hidden>
-        <p>Open <strong id="login-url"></strong> in your browser and enter this code:</p>
+        <p>Go to <strong id="login-url"></strong> and enter this code:</p>
         <div id="login-code" class="login-code"></div>
-        <div class="actions">
-          <button type="button" id="login-copy-open" class="primary">Copy code &amp; open browser</button>
-          <button type="button" id="login-cancel">Cancel</button>
+        <div class="dialog-actions start">
+          <button type="button" id="login-copy-open" class="primary">Copy code and open browser</button>
+          <button type="button" id="login-cancel" class="quiet">Cancel</button>
         </div>
-        <p class="muted small">You sign in on Microsoft's own website. Hojicha never sees your password.</p>
+        <p class="hint">You sign in on Microsoft's website. Hojicha never sees your password.</p>
       </div>
 
-      <button type="button" id="add-microsoft" class="primary">Add Microsoft account</button>
+      <button type="button" id="add-microsoft" class="primary" autofocus>Add Microsoft account</button>
 
       <form id="offline-form" class="offline-form">
-        <input id="offline-name" placeholder="Offline player name" maxlength="16" spellcheck="false" autocomplete="off">
+        <input id="offline-name" placeholder="Offline player name" maxlength="16" spellcheck="false" autocomplete="off" aria-label="Offline player name">
         <button type="submit" id="add-offline">Add offline account</button>
       </form>
-      <p id="offline-hint" class="muted small"></p>
+      <p id="offline-hint" class="hint"></p>
 
       <div id="accounts-error" class="error"></div>
-      <div class="actions">
-        <button type="button" id="accounts-close">Close</button>
+      <div class="dialog-actions">
+        <button type="button" id="accounts-close" class="quiet">Close</button>
       </div>
     </div>
   </dialog>
