@@ -15,8 +15,8 @@ const HOST = '127.0.0.1';
 const STOP_TIMEOUT_MS = 60000;
 const OVERRIDDEN_KEYS = ['online-mode', 'server-ip'];
 
-const file = () => path.join(paths.root, 'servers.json');
-const restoreFile = () => path.join(paths.root, 'server-properties-restore.json');
+const file = () => paths.serversFile;
+const restoreFile = () => paths.serverRestoreFile;
 const processes = new Map(); // id -> { child, ready: Promise, port }
 let hooks = { status: () => {}, log: () => {} };
 

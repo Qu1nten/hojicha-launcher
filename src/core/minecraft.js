@@ -33,7 +33,7 @@ async function latestFabricLoader(gameVersion) {
 }
 
 // ---------- Version JSONs ----------
-// Each version JSON is cached under data/versions/<id>/<id>.json so installed instances launch offline.
+// Each version JSON is cached under meta/versions/<id>/<id>.json so installed instances launch offline.
 
 async function getVanillaVersionJson(id) {
   const file = path.join(paths.versions, id, `${id}.json`);

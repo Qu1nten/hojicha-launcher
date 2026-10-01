@@ -35,7 +35,7 @@
   sign in there. Hojicha never sees or stores your password.
 - **Ownership is verified.** After signing in, Hojicha exchanges the Microsoft token through Xbox Live for a
   Minecraft session and checks that the account owns Minecraft: Java Edition.
-- **Tokens stay on your PC.** They are stored in `%APPDATA%\Hojicha Launcher\data\accounts.json`, encrypted with
+- **Tokens stay on your PC.** They are stored in `config\accounts.json` in the launcher folder, encrypted with
   Windows' user-level encryption (DPAPI via Electron `safeStorage`). Nothing is sent anywhere except Microsoft,
   Xbox Live, Mojang and Modrinth.
 - **Offline accounts require a verified owner.** Offline accounts (for local and offline-mode servers) can only
@@ -56,8 +56,20 @@ for (just you, or everyone on the PC) and where it goes. It always creates its o
 the folder you pick (default `%LOCALAPPDATA%\Programs\Hojicha Launcher`), and adds desktop and Start menu
 shortcuts.
 
-To uninstall, run `uninstall.exe` in the install folder, or use **Settings → Apps**. It removes
-only the launcher's own files, and keeps your instances and settings in `%APPDATA%\Hojicha Launcher\data`.
+Everything the launcher stores lives in that same folder:
+
+```
+instances\   one folder per instance (the game folder is instances\<name>\minecraft)
+synced\      resource packs, shader packs, screenshots and options shared between instances
+meta\        Minecraft versions, libraries, assets and Java, shared by all instances
+config\      settings, accounts and servers
+```
+
+If the folder isn't writable (an install for everyone in Program Files), they go to `%APPDATA%\Hojicha Launcher`
+instead. Data from 0.2.x and older (in `%APPDATA%\Hojicha Launcher\data`) is moved over on first start.
+
+To uninstall, run `uninstall.exe` in the launcher folder, or use **Settings → Apps**. It removes only the
+launcher's own files: your instances and settings stay in the folder until you delete it.
 
 ## Building from source
 
@@ -91,6 +103,7 @@ src/core/modrinth.js    Modrinth search/install/dependencies
 src/core/sync.js        instance syncing
 src/core/servers.js     local servers
 src/core/instances.js   instance storage
+src/core/storage.js     where data lives, moving data from older versions
 build/                  pixel-art logo (logo.png, 16x16) and the script that turns it into app icons
 ```
 

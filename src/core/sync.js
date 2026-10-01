@@ -3,8 +3,8 @@ const path = require('path');
 const paths = require('./paths');
 const instances = require('./instances');
 
-// Synced items live once in data/shared/ and are shared by every instance that ticks them.
-//  - Folders are directory junctions into data/shared, so all instances see the same files live.
+// Synced items live once in synced/ and are shared by every instance that ticks them.
+//  - Folders are directory junctions into synced/, so all instances see the same files live.
 //  - Single files are copied in before launch and copied back when the game exits
 //    (linking single files is unreliable on Windows and the game may replace them on save).
 const FOLDERS = ['resourcepacks', 'shaderpacks', 'screenshots'];
@@ -30,12 +30,12 @@ function linksTo(p, target) {
 }
 
 function linkFolder(gameDir, name) {
-  const shared = path.join(paths.shared, name);
+  const shared = path.join(paths.synced, name);
   const local = path.join(gameDir, name);
   fs.mkdirSync(shared, { recursive: true });
   if (isLink(local)) {
     if (linksTo(local, shared)) return;
-    fs.unlinkSync(local); // stale link (e.g. the data folder moved): relink below
+    fs.unlinkSync(local); // stale link (e.g. the launcher folder moved): relink below
   }
   if (fs.existsSync(local)) {
     // Move what the instance already had into the shared folder (without overwriting) before linking.
@@ -49,7 +49,7 @@ function unlinkFolder(gameDir, name, keepCopy) {
   const local = path.join(gameDir, name);
   if (!isLink(local)) return;
   fs.unlinkSync(local); // removes only the junction, never the shared contents
-  if (keepCopy) fs.cpSync(path.join(paths.shared, name), local, { recursive: true });
+  if (keepCopy) fs.cpSync(path.join(paths.synced, name), local, { recursive: true });
 }
 
 function setSync(id, item, enabled) {
@@ -61,10 +61,10 @@ function setSync(id, item, enabled) {
     else unlinkFolder(gameDir, item, true);
   } else if (enabled) {
     // First instance to share a file seeds the shared copy.
-    const shared = path.join(paths.shared, item);
+    const shared = path.join(paths.synced, item);
     const local = path.join(gameDir, item);
     if (!fs.existsSync(shared) && fs.existsSync(local)) {
-      fs.mkdirSync(paths.shared, { recursive: true });
+      fs.mkdirSync(paths.synced, { recursive: true });
       fs.copyFileSync(local, shared);
     }
   }
@@ -79,7 +79,7 @@ function beforeLaunch(instance) {
     if (FOLDERS.includes(item)) {
       linkFolder(gameDir, item);
     } else {
-      const shared = path.join(paths.shared, item);
+      const shared = path.join(paths.synced, item);
       if (fs.existsSync(shared)) fs.copyFileSync(shared, path.join(gameDir, item));
     }
   }
@@ -90,17 +90,32 @@ function afterExit(instance) {
   for (const item of FILES) {
     const local = path.join(gameDir, item);
     if (instance.sync[item] && fs.existsSync(local)) {
-      fs.mkdirSync(paths.shared, { recursive: true });
-      fs.copyFileSync(local, path.join(paths.shared, item));
+      fs.mkdirSync(paths.synced, { recursive: true });
+      fs.copyFileSync(local, path.join(paths.synced, item));
     }
   }
 }
 
-// Deletes an instance. Junctions are removed first so deleting can never reach into data/shared.
+// Deletes an instance. Junctions are removed first so deleting can never reach into synced/.
 function deleteInstance(id) {
   const gameDir = instances.gameDir(id);
   for (const item of FOLDERS) unlinkFolder(gameDir, item, false);
   fs.rmSync(instances.dir(id), { recursive: true, force: true });
 }
 
-module.exports = { ITEMS, setSync, beforeLaunch, afterExit, deleteInstance };
+// Re-points every synced folder at synced/. Junctions store absolute paths, so they go stale when the
+// launcher folder is moved or its data is migrated; run at startup so instance folders always look right.
+function relinkAll() {
+  for (const instance of instances.list()) {
+    for (const item of FOLDERS) {
+      if (!instance.sync[item]) continue;
+      try {
+        linkFolder(instances.gameDir(instance.id), item);
+      } catch (err) {
+        console.error(`Could not relink ${item} for ${instance.id}:`, err.message);
+      }
+    }
+  }
+}
+
+module.exports = { ITEMS, FOLDERS, setSync, beforeLaunch, afterExit, deleteInstance, relinkAll };
