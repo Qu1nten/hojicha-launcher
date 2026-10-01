@@ -1,7 +1,7 @@
 {
   "name": "hojicha-launcher",
   "productName": "Hojicha Launcher",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "Minecraft: Java Edition launcher with instances, Modrinth downloads, instance syncing and local servers",
   "author": "Quinten",
@@ -29,12 +29,14 @@
       "build/icon.png",
       "build/icon.ico"
     ],
+    "afterPack": "build/after-pack.js",
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
       "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,

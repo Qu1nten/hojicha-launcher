@@ -1,6 +1,7 @@
 // Builds the app icons from the 16x16 pixel-art logo (build/logo.png):
 //   build/icon.png  512x512 (window icon on non-Windows, README)
 //   build/icon.ico  16-256px for Windows (window, taskbar, installer, shortcuts)
+//   build/installerSidebar.bmp  164x314 picture on the installer's welcome and finish pages
 // Every size is a whole-number enlargement with nearest-neighbour scaling, so the pixels stay crisp.
 // 24px is not a multiple of 16, so there the 16px art is centred on a 24px canvas instead of being stretched.
 // Run with: npm run icon
@@ -61,6 +62,45 @@ function buildIco(frames) {
   return Buffer.concat([header, ...frames.map((f) => f.data)]);
 }
 
+// The installer sidebar: the cup on the roast background, as the 24-bit BMP that NSIS wants.
+const SIDEBAR = { width: 164, height: 314, factor: 6, top: 88, background: [0x24, 0x19, 0x13] };
+
+function buildSidebar(src, srcSize) {
+  const { width, height, factor, top, background } = SIDEBAR;
+  const rowBytes = Math.ceil((width * 3) / 4) * 4;
+  const pixels = Buffer.alloc(rowBytes * height);
+  const left = Math.floor((width - srcSize * factor) / 2);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let [r, g, b] = background;
+      const sx = Math.floor((x - left) / factor);
+      const sy = Math.floor((y - top) / factor);
+      if (x >= left && y >= top && sx < srcSize && sy < srcSize) {
+        const i = (sy * srcSize + sx) * 4; // BGRA
+        const a = src[i + 3] / 255;
+        r = Math.round(src[i + 2] * a + r * (1 - a));
+        g = Math.round(src[i + 1] * a + g * (1 - a));
+        b = Math.round(src[i] * a + b * (1 - a));
+      }
+      const to = (height - 1 - y) * rowBytes + x * 3; // BMP rows are bottom-up
+      pixels[to] = b;
+      pixels[to + 1] = g;
+      pixels[to + 2] = r;
+    }
+  }
+  const header = Buffer.alloc(54);
+  header.write('BM', 0);
+  header.writeUInt32LE(54 + pixels.length, 2);
+  header.writeUInt32LE(54, 10);
+  header.writeUInt32LE(40, 14);
+  header.writeInt32LE(width, 18);
+  header.writeInt32LE(height, 22);
+  header.writeUInt16LE(1, 26);
+  header.writeUInt16LE(24, 28);
+  header.writeUInt32LE(pixels.length, 34);
+  return Buffer.concat([header, pixels]);
+}
+
 app.whenReady().then(() => {
   const logo = nativeImage.createFromPath(SOURCE);
   const { width, height } = logo.getSize();
@@ -75,5 +115,6 @@ app.whenReady().then(() => {
     return { size, data: size >= 256 ? toImage(bgra, size).toPNG() : toDib(size, bgra) };
   });
   fs.writeFileSync(path.join(__dirname, 'icon.ico'), buildIco(frames));
+  fs.writeFileSync(path.join(__dirname, 'installerSidebar.bmp'), buildSidebar(src, width));
   app.quit();
 });

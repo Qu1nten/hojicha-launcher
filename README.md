@@ -51,9 +51,13 @@ ran), so your own start script keeps working. The selected account is made opera
 ## Install
 
 Download the installer from the [Releases](../../releases) page, or build it yourself (below). The installer is
-not code-signed yet, so Windows SmartScreen may warn on first run (**More info → Run anyway**). It installs
-per user to `%LOCALAPPDATA%\Programs\hojicha-launcher`, and adds desktop and Start menu shortcuts. Uninstalling
-keeps your instances and settings in `%APPDATA%\Hojicha Launcher\data`.
+not code-signed yet, so Windows SmartScreen may warn on first run (**More info → Run anyway**). You choose who it's
+for (just you, or everyone on the PC) and where it goes. It always creates its own `Hojicha Launcher` folder inside
+the folder you pick (default `%LOCALAPPDATA%\Programs\Hojicha Launcher`), and adds desktop and Start menu
+shortcuts.
+
+To uninstall, run `Uninstall Hojicha Launcher.exe` in the install folder, or use **Settings → Apps**. It removes
+only the launcher's own files, and keeps your instances and settings in `%APPDATA%\Hojicha Launcher\data`.
 
 ## Building from source
 
@@ -63,15 +67,15 @@ Requires [Node.js](https://nodejs.org/) 22 or newer.
 npm install
 npm start          # run the launcher
 npm run dist       # build dist/Hojicha Launcher Setup <version>.exe
-npm run icon       # regenerate build/icon.png and icon.ico from the 16x16 build/logo.png
+npm run icon       # regenerate build/icon.png, icon.ico and installerSidebar.bmp from the 16x16 build/logo.png
 ```
 
 If `npm start` reports that Electron failed to install, your npm skipped install scripts; run
 `node node_modules/electron/install.js` once. If the build fails while extracting its tools (`EXDEV` or
 `7za.exe ... ENOENT`), use a short cache path: `$env:ELECTRON_BUILDER_CACHE = "$env:TEMP\eb-cache"; npm run dist`.
 
-> **Never install the launcher into the project folder.** The uninstaller (which also runs when updating)
-> deletes its whole install folder.
+The installer's tweaks (own sub-folder, uninstall that only deletes the launcher's files, the sidebar picture) live in
+`build/installer.nsh` and `build/after-pack.js`.
 
 ### Project layout
 
