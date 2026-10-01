@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="build/icon.png" width="112" alt="Hojicha Launcher icon">
+  <img src="build/icon.png" width="128" alt="Hojicha Launcher logo: a pixel-art cup of hojicha">
 </p>
 
 <h1 align="center">Hojicha Launcher</h1>
@@ -63,7 +63,7 @@ Requires [Node.js](https://nodejs.org/) 22 or newer.
 npm install
 npm start          # run the launcher
 npm run dist       # build dist/Hojicha Launcher Setup <version>.exe
-npm run icon       # regenerate build/icon.png and icon.ico from build/icon.svg
+npm run icon       # regenerate build/icon.png and icon.ico from the 16x16 build/logo.png
 ```
 
 If `npm start` reports that Electron failed to install, your npm skipped install scripts; run
@@ -87,7 +87,7 @@ src/core/modrinth.js    Modrinth search/install/dependencies
 src/core/sync.js        instance syncing
 src/core/servers.js     local servers
 src/core/instances.js   instance storage
-build/                  icon source (icon.svg) and its renderer
+build/                  pixel-art logo (logo.png, 16x16) and the script that turns it into app icons
 ```
 
 ## Known limitations
