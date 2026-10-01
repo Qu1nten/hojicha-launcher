@@ -41,10 +41,13 @@ function legacyRoot(appData) {
   return path.join(appData, 'Hojicha Launcher');
 }
 
+// Since 0.4.0 the installer puts the app in an app\ sub-folder of the launcher folder (see build/installer.nsh),
+// so the home is the folder above it. 0.3.x installs had the .exe in the launcher folder itself.
 function chooseHome({ isPackaged, exePath, appData }) {
   if (process.env.HOJICHA_HOME) return path.resolve(process.env.HOJICHA_HOME);
   const exeDir = path.dirname(exePath);
-  if (isPackaged && canWrite(exeDir)) return exeDir;
+  const launcherDir = path.basename(exeDir).toLowerCase() === 'app' ? path.dirname(exeDir) : exeDir;
+  if (isPackaged && canWrite(launcherDir)) return launcherDir;
   return legacyRoot(appData);
 }
 

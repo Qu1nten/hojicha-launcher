@@ -56,20 +56,25 @@ for (just you, or everyone on the PC) and where it goes. It always creates its o
 the folder you pick (default `%LOCALAPPDATA%\Programs\Hojicha Launcher`), and adds desktop and Start menu
 shortcuts.
 
-Everything the launcher stores lives in that same folder:
+That folder holds the launcher and everything it stores:
 
 ```
+app\         the launcher itself
 instances\   one folder per instance (the game folder is instances\<name>\minecraft)
 synced\      resource packs, shader packs, screenshots and options shared between instances
 meta\        Minecraft versions, libraries, assets and Java, shared by all instances
 config\      settings, accounts and servers
+uninstall.exe, and a Hojicha Launcher shortcut
 ```
+
+Instance folders are named after the instance, like `instances\Fabric 1.21.11`.
 
 If the folder isn't writable (an install for everyone in Program Files), they go to `%APPDATA%\Hojicha Launcher`
 instead. Data from 0.2.x and older (in `%APPDATA%\Hojicha Launcher\data`) is moved over on first start.
 
-To uninstall, run `uninstall.exe` in the launcher folder, or use **Settings → Apps**. It removes only the
-launcher's own files: your instances and settings stay in the folder until you delete it.
+To uninstall, run `uninstall.exe` in the launcher folder, or use **Settings → Apps**. After asking, it deletes the
+whole launcher folder, **including your instances and worlds**, so copy any worlds you want to keep first. Updating
+(running a newer installer) only replaces `app\` and keeps everything else.
 
 ## Building from source
 

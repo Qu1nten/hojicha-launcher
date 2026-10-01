@@ -32,11 +32,41 @@ function list() {
     .sort((a, b) => a.created - b.created);
 }
 
+// The instance's folder (and id) is its name, minus what Windows doesn't allow in folder names.
+function folderName(name) {
+  let base = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '');
+  if (/^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(base)) base = `${base} instance`;
+  return base || 'Instance';
+}
+
 function uniqueId(name) {
-  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'instance';
+  const base = folderName(name);
   let id = base;
-  for (let n = 2; fs.existsSync(dir(id)); n++) id = `${base}-${n}`;
+  for (let n = 2; fs.existsSync(dir(id)); n++) id = `${base} (${n})`;
   return id;
+}
+
+// Instances made before 0.4.0 have folders like "fabric-1-21-11"; rename them to their names
+// ("Fabric 1.21.11"). Left alone when that name is taken or the folder can't be renamed.
+function renameOldFolders() {
+  for (const instance of list()) {
+    const id = folderName(instance.name);
+    const caseOnly = id.toLowerCase() === instance.id.toLowerCase(); // Windows sees these as the same folder
+    if (id === instance.id || (!caseOnly && fs.existsSync(dir(id)))) continue;
+    try {
+      if (caseOnly) {
+        const temp = `${dir(id)}.renaming`;
+        fs.renameSync(dir(instance.id), temp);
+        fs.renameSync(temp, dir(id));
+      } else {
+        fs.renameSync(dir(instance.id), dir(id));
+      }
+    } catch (err) {
+      console.error(`Could not rename instance folder ${instance.id}:`, err.message);
+      continue;
+    }
+    save({ ...instance, id });
+  }
 }
 
 function create({ name, gameVersion, loader, loaderVersion }) {
@@ -54,4 +84,4 @@ function create({ name, gameVersion, loader, loaderVersion }) {
   return save(instance);
 }
 
-module.exports = { dir, gameDir, get, save, list, create };
+module.exports = { dir, gameDir, get, save, list, create, renameOldFolders };

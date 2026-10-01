@@ -214,6 +214,7 @@ app.whenReady().then(async () => {
       dialog.showErrorBox('Hojicha Launcher', `Some data could not be moved into ${HOME}:\n\n${err.message}\n\nNothing was lost. The launcher will try again next time it starts.`);
     }
   }
+  instances.renameOldFolders();
   sync.relinkAll();
   if (safeStorage.isEncryptionAvailable()) {
     accounts.setCipher({
