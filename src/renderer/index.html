@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self'">
+  <title>Hojicha Launcher</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <h1>Hojicha</h1>
+    <div class="side-scroll">
+      <h4>Instances</h4>
+      <ul id="instance-list" class="side-list"></ul>
+      <button id="new-instance">+ New instance</button>
+      <h4>Local servers</h4>
+      <ul id="server-list" class="side-list"></ul>
+      <button id="add-server">+ Add server folder</button>
+    </div>
+    <form id="settings">
+      <label>Account
+        <div class="account-row">
+          <select id="account-select"></select>
+          <button type="button" id="manage-accounts" title="Manage accounts">Manage</button>
+        </div>
+      </label>
+      <label>Memory (MB)
+        <input id="memory" type="number" min="512" step="512">
+      </label>
+      <div id="settings-error" class="error"></div>
+    </form>
+    <p class="disclaimer">Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</p>
+  </aside>
+
+  <main>
+    <div id="empty" class="empty">Create an instance to get started.</div>
+
+    <section id="instance-view" hidden>
+      <header>
+        <div>
+          <h2 id="inst-name"></h2>
+          <div id="inst-meta" class="muted"></div>
+        </div>
+        <div class="actions">
+          <button id="open-folder">Open folder</button>
+          <button id="delete-instance" class="danger">Delete</button>
+          <button id="play" class="primary">Play</button>
+        </div>
+      </header>
+      <div id="status" class="status"></div>
+
+      <nav class="tabs">
+        <button data-tab="mods" class="active">Mods</button>
+        <button data-tab="browse">Browse Modrinth</button>
+        <button data-tab="sync">Sync</button>
+        <button data-tab="log">Log</button>
+      </nav>
+
+      <div class="tab" id="tab-mods">
+        <ul id="mod-list" class="list"></ul>
+      </div>
+
+      <div class="tab" id="tab-browse" hidden>
+        <form id="search-form">
+          <select id="search-type">
+            <option value="mod">Mods</option>
+            <option value="resourcepack">Resource packs</option>
+            <option value="shader">Shaders</option>
+          </select>
+          <input id="search-query" placeholder="Search Modrinth…" spellcheck="false">
+          <button type="submit">Search</button>
+        </form>
+        <ul id="search-results" class="list"></ul>
+        <button id="load-more" hidden>Load more</button>
+      </div>
+
+      <div class="tab" id="tab-sync" hidden>
+        <p class="muted">Ticked items are shared with every other instance that also ticks them.
+          Folders are shared live; options and server list are copied in at launch and saved back when the game closes.</p>
+        <div id="sync-options"></div>
+        <div id="sync-error" class="error"></div>
+      </div>
+
+      <div class="tab" id="tab-log" hidden>
+        <pre id="log"></pre>
+      </div>
+    </section>
+
+    <section id="server-view" hidden>
+      <header>
+        <div>
+          <h2 id="srv-name"></h2>
+          <div id="srv-meta" class="muted"></div>
+        </div>
+        <div class="actions">
+          <button id="srv-open-folder">Open folder</button>
+          <button id="srv-remove" class="danger">Remove</button>
+          <button id="srv-toggle">Start</button>
+        </div>
+      </header>
+      <div id="srv-status" class="status"></div>
+
+      <div class="join-row">
+        <label class="inline">Join with
+          <select id="srv-instance"></select>
+        </label>
+        <button id="srv-join" class="primary">Start &amp; Join</button>
+      </div>
+      <p class="muted small">Runs on this PC only (127.0.0.1) with offline logins allowed. Your server.properties settings are put back
+        when the server stops, so your own start script keeps working normally. Your selected account is made operator when the server starts.</p>
+
+      <div class="console">
+        <pre id="srv-log"></pre>
+      </div>
+      <form id="srv-command-form">
+        <input id="srv-command" placeholder="Server command, e.g. say hello" spellcheck="false" autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
+    </section>
+  </main>
+
+  <dialog id="new-dialog">
+    <form id="new-form" method="dialog">
+      <h3>New instance</h3>
+      <label>Name <input id="new-name" placeholder="My instance" spellcheck="false"></label>
+      <label>Minecraft version
+        <select id="new-version"></select>
+      </label>
+      <label class="inline"><input id="new-snapshots" type="checkbox"> Show snapshots</label>
+      <label>Mod loader
+        <select id="new-loader">
+          <option value="fabric">Fabric</option>
+          <option value="vanilla">Vanilla (no mods)</option>
+        </select>
+      </label>
+      <div id="new-error" class="error"></div>
+      <div class="actions">
+        <button type="button" id="new-cancel">Cancel</button>
+        <button type="submit" class="primary" id="new-create">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="accounts-dialog">
+    <div class="dialog-body">
+      <h3>Accounts</h3>
+      <ul id="account-list" class="list"></ul>
+
+      <div id="login-panel" class="login-panel" hidden>
+        <p>Open <strong id="login-url"></strong> in your browser and enter this code:</p>
+        <div id="login-code" class="login-code"></div>
+        <div class="actions">
+          <button type="button" id="login-copy-open" class="primary">Copy code &amp; open browser</button>
+          <button type="button" id="login-cancel">Cancel</button>
+        </div>
+        <p class="muted small">You sign in on Microsoft's own website. Hojicha never sees your password.</p>
+      </div>
+
+      <button type="button" id="add-microsoft" class="primary">Add Microsoft account</button>
+
+      <form id="offline-form" class="offline-form">
+        <input id="offline-name" placeholder="Offline player name" maxlength="16" spellcheck="false" autocomplete="off">
+        <button type="submit" id="add-offline">Add offline account</button>
+      </form>
+      <p id="offline-hint" class="muted small"></p>
+
+      <div id="accounts-error" class="error"></div>
+      <div class="actions">
+        <button type="button" id="accounts-close">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+{
+  "name": "hojicha-launcher",
+  "productName": "Hojicha Launcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minecraft: Java Edition launcher with instances, Modrinth downloads, instance syncing and local servers",
+  "author": "Quinten",
+  "license": "MIT",
+  "homepage": "https://github.com/Qu1nten/hojicha-launcher",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Qu1nten/hojicha-launcher.git"
+  },
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "icon": "electron build/render-icon.js",
+    "dist": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.hojicha.launcher",
+    "productName": "Hojicha Launcher",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "build/icon.ico"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Hojicha Launcher"
+    }
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.1"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  }
+}
