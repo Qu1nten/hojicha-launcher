@@ -174,7 +174,7 @@ input:focus-visible, select:focus-visible { outline: none; }
   font-weight: 700;
   letter-spacing: 0.01em;
 }
-.brand img { border-radius: 8px; }
+.brand img { image-rendering: pixelated; } /* pixel-art logo: keep every pixel sharp */
 
 .side-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
 .side-section h2 {
