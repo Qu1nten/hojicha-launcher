@@ -114,6 +114,15 @@ function registerIpc() {
 
   handle('mods:list', (id) => modrinth.listMods(id));
   handle('mods:remove', (id, file) => modrinth.removeMod(id, file));
+  handle('mods:versions', (id, file) => modrinth.listModVersions(id, file));
+  handle('mods:setVersion', async (id, file, versionId) => {
+    if (running.has(id)) throw new Error('Close the game first: Windows keeps mod files locked while it runs.');
+    try {
+      return await modrinth.setModVersion(id, file, versionId, (text) => status(id, 'busy', text));
+    } finally {
+      status(id, running.has(id) ? 'running' : 'idle', running.has(id) ? 'Playing' : '');
+    }
+  });
   handle('modrinth:search', (id, query, type, offset) => modrinth.search(id, query, type, offset));
   handle('modrinth:install', async (id, projectId, type) => {
     try {

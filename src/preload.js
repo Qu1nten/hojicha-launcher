@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('launcher', {
 
   listMods: (id) => invoke('mods:list', id),
   removeMod: (id, file) => invoke('mods:remove', id, file),
+  listModVersions: (id, file) => invoke('mods:versions', id, file),
+  setModVersion: (id, file, versionId) => invoke('mods:setVersion', id, file, versionId),
   search: (id, query, type, offset) => invoke('modrinth:search', id, query, type, offset),
   install: (id, projectId, type) => invoke('modrinth:install', id, projectId, type),
   openExternal: (url) => invoke('openExternal', url),
