@@ -188,7 +188,7 @@ async function installAssets(version, report) {
   await runPool([...unique.values()], 16, (obj) => {
     const sub = obj.hash.slice(0, 2);
     return downloadFile(`${RESOURCES_URL}/${sub}/${obj.hash}`, path.join(paths.assets, 'objects', sub, obj.hash), { sha1: obj.hash, size: obj.size });
-  }, (done, total) => report(`Downloading assets ${done}/${total}`));
+  }, (done, total) => report(`Preparing assets (${done} of ${total})`, 0.25 + 0.6 * (done / total)));
 
   // Very old versions read assets by name instead of by hash.
   if (virtual || mapToResources) {
@@ -207,14 +207,14 @@ async function installAssets(version, report) {
 async function installGame(version, report) {
   const client = version.downloads.client;
   const clientJar = path.join(paths.versions, version.jarId, `${version.jarId}.jar`);
-  report('Downloading game jar');
+  report('Preparing the game', 0.06);
   await downloadFile(client.url, clientJar, { sha1: client.sha1, size: client.size });
 
   const { classpath, natives } = collectLibraries(version);
   const unique = new Map();
   for (const lib of [...classpath, ...natives]) if (lib.url) unique.set(lib.path, lib);
   await runPool([...unique.values()], 8, (lib) => downloadFile(lib.url, lib.path, lib),
-    (done, total) => report(`Downloading libraries ${done}/${total}`));
+    (done, total) => report(`Preparing libraries (${done} of ${total})`, 0.08 + 0.17 * (done / total)));
 
   const nativesDir = path.join(paths.versions, version.jarId, 'natives');
   extractNatives(natives.map((n) => n.path), nativesDir);
@@ -278,8 +278,9 @@ function buildArgs(version, install, gameDir, settings, account, options = {}) {
 }
 
 // Installs everything the instance needs and returns what to spawn.
+// report(text, fraction) receives overall progress from 0 to 1 for the launch progress bar.
 async function prepare(instance, gameDir, settings, account, report, options = {}) {
-  report('Resolving version');
+  report('Checking versions', 0.03);
   const version = await resolveVersion(instance);
   const install = await installGame(version, report);
 
@@ -288,7 +289,7 @@ async function prepare(instance, gameDir, settings, account, report, options = {
   }
 
   const java = settings.javaPath || await ensureJava(version.javaVersion?.component || 'jre-legacy',
-    (done, total) => report(`Downloading Java ${done}/${total}`));
+    (done, total) => report(`Preparing Java (${done} of ${total})`, 0.85 + 0.12 * (done / total)));
 
   return { java, args: buildArgs(version, install, gameDir, settings, account, options) };
 }
@@ -296,7 +297,7 @@ async function prepare(instance, gameDir, settings, account, report, options = {
 // Java for a given Minecraft version (used to run servers with the same runtime as the game).
 async function javaFor(gameVersion, report) {
   const version = await getVanillaVersionJson(gameVersion);
-  return ensureJava(version.javaVersion?.component || 'jre-legacy', (done, total) => report(`Downloading Java ${done}/${total}`));
+  return ensureJava(version.javaVersion?.component || 'jre-legacy', (done, total) => report(`Preparing Java (${done} of ${total})`));
 }
 
 module.exports = { listGameVersions, latestFabricLoader, prepare, javaFor };

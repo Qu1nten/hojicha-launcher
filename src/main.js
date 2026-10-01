@@ -21,7 +21,8 @@ const running = new Map();
 const send = (channel, data) => {
   if (win && !win.isDestroyed()) win.webContents.send(channel, data);
 };
-const status = (id, state, text = '') => send('status', { id, state, text });
+// progress (0-1) drives the launch progress bar while an instance is being prepared.
+const status = (id, state, text = '', progress = null) => send('status', { id, state, text, progress });
 const log = (id, line) => send('log', { id, line });
 
 servers.setHooks({
@@ -40,16 +41,16 @@ async function launch(id, options = {}) {
   try {
     const instance = instances.get(id);
     const gameDir = instances.gameDir(id);
-    status(id, 'installing', 'Signing in…');
+    status(id, 'installing', 'Signing in', 0.01);
     const account = await accounts.launchIdentity();
-    const report = (text) => status(id, 'installing', text);
+    const report = (text, progress = null) => status(id, 'installing', text, progress);
     const { java, args } = await minecraft.prepare(instance, gameDir, settings.get(), account, report, options);
     sync.beforeLaunch(instance);
 
     log(id, `> Launching ${instance.name} (${instance.gameVersion} ${instance.loader}) as ${account.name}`);
     const child = spawn(java, args, { cwd: gameDir, windowsHide: true });
     running.set(id, child);
-    status(id, 'running', 'Running');
+    status(id, 'running', 'Playing', 1);
     readline.createInterface({ input: child.stdout }).on('line', (line) => log(id, line));
     readline.createInterface({ input: child.stderr }).on('line', (line) => log(id, line));
 

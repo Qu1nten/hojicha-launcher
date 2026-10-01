@@ -1,14 +1,15 @@
 const api = window.launcher;
 const $ = (selector) => document.querySelector(selector);
 
-const SYNC_LABELS = {
-  resourcepacks: 'Resource packs',
-  shaderpacks: 'Shader packs',
-  screenshots: 'Screenshots',
-  'options.txt': 'Options & keybinds (options.txt)',
-  'servers.dat': 'Server list (servers.dat)',
-};
+const SYNC_ITEMS = [
+  ['resourcepacks', 'Resource packs', 'One shared resource pack folder.'],
+  ['shaderpacks', 'Shader packs', 'One shared shader pack folder.'],
+  ['screenshots', 'Screenshots', 'All screenshots end up in one folder.'],
+  ['options.txt', 'Options and keybinds', 'Copied in when the game starts and saved when it closes.'],
+  ['servers.dat', 'Server list', 'Copied in when the game starts and saved when it closes.'],
+];
 const MAX_LOG_LINES = 3000;
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 const state = {
   instances: [],
@@ -19,9 +20,9 @@ const state = {
   serverStatus: {}, // id -> { state, text }
   serverLogs: {},   // id -> string[]
   tab: 'mods',
-  status: {}, // id -> { state, text }
+  status: {}, // id -> { state, text, progress }
   logs: {},   // id -> string[]
-  search: { query: '', type: 'mod', offset: 0, total: 0 },
+  search: { query: '', type: 'mod', offset: 0, total: 0, done: false },
   versions: null,
 };
 
@@ -47,12 +48,25 @@ function isBusy(id) {
   return s === 'installing' || s === 'running';
 }
 
+// "Fabric 1.21.11" / "Vanilla 1.21.11"
 function loaderLabel(inst) {
-  return `${inst.gameVersion} · ${inst.loader === 'fabric' ? 'Fabric' : 'Vanilla'}`;
+  return `${inst.loader === 'fabric' ? 'Fabric' : 'Vanilla'} ${inst.gameVersion}`;
 }
 
-function iconFor(url) {
-  return url ? el('img', { src: url, alt: '' }) : el('div', { className: 'icon' });
+function thumb(url) {
+  return url ? el('img', { className: 'thumb', src: url, alt: '' }) : el('div', { className: 'thumb' });
+}
+
+function emptyRow(text, action) {
+  const row = el('li', { className: 'empty-row' }, [el('p', { textContent: text })]);
+  if (action) row.append(action);
+  return row;
+}
+
+function formatDownloads(n) {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M downloads`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)}K downloads`;
+  return `${n} downloads`;
 }
 
 // ---------- Instances ----------
@@ -60,7 +74,7 @@ function iconFor(url) {
 async function refreshInstances(selectId) {
   state.instances = await api.listInstances();
   for (const inst of state.instances) {
-    if (inst.running && !state.status[inst.id]) state.status[inst.id] = { state: 'running', text: 'Running' };
+    if (inst.running && !state.status[inst.id]) state.status[inst.id] = { state: 'running', text: 'Playing' };
   }
   if (selectId) {
     state.selected = selectId;
@@ -75,8 +89,11 @@ function renderSidebar() {
   $('#instance-list').replaceChildren(...state.instances.map((inst) => {
     const active = state.view === 'instance' && inst.id === state.selected;
     const item = el('li', { className: active ? 'active' : '' }, [
-      el('strong', { textContent: inst.name }),
-      el('span', { className: 'muted', textContent: loaderLabel(inst) }),
+      el('span', { className: 'name', textContent: inst.name }),
+      el('span', { className: 'sub' }, [
+        loaderLabel(inst),
+        state.status[inst.id]?.state === 'running' ? el('span', { className: 'running-dot', title: 'Playing' }) : null,
+      ]),
     ]);
     item.onclick = () => selectInstance(inst.id);
     return item;
@@ -85,10 +102,10 @@ function renderSidebar() {
     const active = state.view === 'server' && server.id === state.selectedServer;
     const running = ['starting', 'running', 'stopping'].includes(state.serverStatus[server.id]?.state);
     const item = el('li', { className: active ? 'active' : '' }, [
-      el('strong', { textContent: server.name }),
-      el('span', { className: 'muted' }, [
-        `${server.mcVersion} · ${serverFlavor(server)}`,
-        running ? el('span', { className: 'dot', textContent: ' ● running' }) : null,
+      el('span', { className: 'name', textContent: server.name }),
+      el('span', { className: 'sub' }, [
+        `${serverFlavor(server)} ${server.mcVersion}`,
+        running ? el('span', { className: 'running-dot', title: 'Running' }) : null,
       ]),
     ]);
     item.onclick = () => selectServer(server.id);
@@ -106,14 +123,19 @@ function renderMain() {
   if (showInstance) renderInstance();
 }
 
+function resetSearch() {
+  state.search = { query: '', type: $('#search-type').value, offset: 0, total: 0, done: false };
+  $('#search-query').value = '';
+  $('#load-more').hidden = true;
+  renderSearchIntro();
+}
+
 function selectInstance(id) {
   if (state.view === 'instance' && id === state.selected) return;
-  if (id !== state.selected) {
-    $('#search-results').replaceChildren();
-    $('#load-more').hidden = true;
-  }
+  const changed = id !== state.selected;
   state.selected = id;
   state.view = 'instance';
+  if (changed) resetSearch();
   renderSidebar();
   renderMain();
 }
@@ -124,10 +146,38 @@ function renderInstance() {
 
   $('#inst-name').textContent = inst.name;
   $('#inst-meta').textContent = inst.loader === 'fabric'
-    ? `${loaderLabel(inst)} ${inst.loaderVersion}`
-    : loaderLabel(inst);
+    ? `Fabric ${inst.loaderVersion} for ${inst.gameVersion}`
+    : `Vanilla ${inst.gameVersion}`;
   renderStatus();
   showTab(state.tab);
+}
+
+// Leaf green -> tea liquor -> roasted brown as the launch progresses.
+const ROAST_STOPS = [[156, 178, 106], [217, 148, 74], [176, 100, 56]];
+function roastColor(fraction) {
+  const f = Math.min(1, Math.max(0, fraction)) * (ROAST_STOPS.length - 1);
+  const i = Math.min(ROAST_STOPS.length - 2, Math.floor(f));
+  const t = f - i;
+  const [a, b] = [ROAST_STOPS[i], ROAST_STOPS[i + 1]];
+  return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * t)).join(', ')})`;
+}
+
+let roastHideTimer = null;
+function renderRoast(s) {
+  const bar = $('#roast');
+  const fill = $('#roast-fill');
+  clearTimeout(roastHideTimer);
+  if (s.state === 'installing' || s.state === 'running') {
+    const progress = s.state === 'running' ? 1 : (s.progress ?? 0);
+    bar.classList.add('active');
+    fill.style.width = `${Math.round(progress * 100)}%`;
+    fill.style.backgroundColor = reduceMotion.matches ? 'var(--liquor)' : roastColor(progress);
+    // Once the game is running the bar has done its job: let it fade.
+    if (s.state === 'running') roastHideTimer = setTimeout(() => bar.classList.remove('active'), 1200);
+  } else {
+    bar.classList.remove('active');
+    fill.style.width = '0';
+  }
 }
 
 function renderStatus() {
@@ -137,10 +187,11 @@ function renderStatus() {
   const statusEl = $('#status');
   statusEl.textContent = s.text;
   statusEl.className = `status${s.state === 'error' ? ' error' : ''}`;
+  renderRoast(s);
 
   const play = $('#play');
   play.disabled = isBusy(inst.id);
-  play.textContent = s.state === 'running' ? 'Running' : s.state === 'installing' ? 'Installing…' : 'Play';
+  play.textContent = s.state === 'running' ? 'Playing' : s.state === 'installing' ? 'Preparing' : 'Play';
   $('#delete-instance').disabled = isBusy(inst.id);
   if (state.tab === 'sync') renderSync();
 }
@@ -164,26 +215,26 @@ async function loadMods() {
   const inst = current();
   const list = $('#mod-list');
   if (inst.loader === 'vanilla') {
-    list.replaceChildren(el('li', { className: 'empty-row', textContent: 'Vanilla instances cannot load mods.' }));
+    list.replaceChildren(emptyRow("This instance has no mod loader, so it can't use mods. Create a Fabric instance to add mods."));
     return;
   }
   const mods = await api.listMods(inst.id);
   if (!mods.length) {
-    list.replaceChildren(el('li', { className: 'empty-row', textContent: 'No mods yet. Find some in Browse Modrinth.' }));
+    const browse = el('button', { className: 'primary', textContent: 'Browse Modrinth' });
+    browse.onclick = () => showTab('browse');
+    list.replaceChildren(emptyRow('No mods yet.', browse));
     return;
   }
   list.replaceChildren(...mods.map((mod) => {
-    const remove = el('button', { className: 'danger', textContent: 'Remove' });
+    const remove = el('button', { className: 'quiet danger', textContent: 'Remove' });
     remove.onclick = async () => {
       await api.removeMod(inst.id, mod.file);
       loadMods();
     };
-    return el('li', {}, [
-      iconFor(mod.iconUrl),
-      el('div', { className: 'info' }, [
-        el('div', { className: 'title', textContent: mod.title }),
-        el('div', { className: 'desc', textContent: [mod.versionNumber, mod.file].filter(Boolean).join(' · ') }),
-      ]),
+    return el('li', { title: mod.file }, [
+      thumb(mod.iconUrl),
+      el('div', { className: 'info' }, [el('div', { className: 'title', textContent: mod.title })]),
+      el('span', { className: 'version', textContent: mod.versionNumber }),
       remove,
     ]);
   }));
@@ -191,20 +242,27 @@ async function loadMods() {
 
 function renderSync() {
   const inst = current();
-  const container = $('#sync-options');
-  container.replaceChildren(...Object.entries(SYNC_LABELS).map(([item, label]) => {
-    const box = el('input', { type: 'checkbox', checked: Boolean(inst.sync[item]), disabled: isBusy(inst.id) });
+  $('#sync-options').replaceChildren(...SYNC_ITEMS.map(([item, title, description]) => {
+    const box = el('input', { type: 'checkbox', className: 'switch', checked: Boolean(inst.sync[item]), disabled: isBusy(inst.id) });
     box.onchange = async () => {
       $('#sync-error').textContent = '';
       try {
-        const updated = await api.setSync(inst.id, item, box.checked);
-        Object.assign(inst, updated);
+        Object.assign(inst, await api.setSync(inst.id, item, box.checked));
       } catch (err) {
         box.checked = !box.checked;
         $('#sync-error').textContent = errorText(err);
       }
     };
-    return el('label', {}, [box, label]);
+    // The label wraps the whole row so clicking anywhere on it flips the switch.
+    return el('li', {}, [
+      el('label', { className: 'sync-row' }, [
+        el('div', { className: 'info' }, [
+          el('div', { className: 'title', textContent: title }),
+          el('div', { className: 'desc', textContent: description }),
+        ]),
+        box,
+      ]),
+    ]);
   }));
 }
 
@@ -216,6 +274,16 @@ function renderLog() {
 
 // ---------- Modrinth browsing ----------
 
+const SEARCH_NOUNS = { mod: 'mods', resourcepack: 'resource packs', shader: 'shaders' };
+
+function renderSearchIntro() {
+  const inst = current();
+  if (!inst) return;
+  const type = $('#search-type').value;
+  const target = type === 'mod' ? loaderLabel(inst) : `Minecraft ${inst.gameVersion}`;
+  $('#search-results').replaceChildren(emptyRow(`Search for ${SEARCH_NOUNS[type]} that work with ${target}. Leave the box empty to see the most popular ones.`));
+}
+
 async function runSearch(append) {
   const inst = current();
   const results = $('#search-results');
@@ -226,7 +294,7 @@ async function runSearch(append) {
     s.offset = 0;
   }
   if (s.type === 'mod' && inst.loader === 'vanilla') {
-    results.replaceChildren(el('li', { className: 'empty-row', textContent: 'Vanilla instances cannot load mods. Create a Fabric instance.' }));
+    results.replaceChildren(emptyRow("This instance has no mod loader, so it can't use mods. Create a Fabric instance to add mods."));
     $('#load-more').hidden = true;
     return;
   }
@@ -235,46 +303,53 @@ async function runSearch(append) {
   try {
     page = await api.search(inst.id, s.query, s.type, s.offset);
   } catch (err) {
-    results.replaceChildren(el('li', { className: 'empty-row', textContent: errorText(err) }));
+    results.replaceChildren(emptyRow(`Modrinth couldn't be reached: ${errorText(err)}`));
     return;
   }
   const rows = page.hits.map((hit) => searchRow(inst, hit, s.type));
   if (append) results.append(...rows);
-  else results.replaceChildren(...(rows.length ? rows : [el('li', { className: 'empty-row', textContent: 'No results.' })]));
+  else {
+    results.replaceChildren(...(rows.length
+      ? rows
+      : [emptyRow(s.query ? `Nothing found for "${s.query}". Try a different word.` : 'Nothing found.')]));
+    results.parentElement.scrollTop = 0;
+  }
   s.offset += page.hits.length;
   s.total = page.total;
+  s.done = true;
   $('#load-more').hidden = s.offset >= s.total;
 }
 
 function searchRow(inst, hit, type) {
-  const button = el('button', {
-    className: hit.installed ? '' : 'primary',
-    textContent: hit.installed ? 'Installed' : 'Install',
-    disabled: hit.installed,
-  });
-  button.onclick = async () => {
-    button.disabled = true;
-    button.textContent = 'Installing…';
-    try {
-      Object.assign(inst, await api.install(inst.id, hit.projectId, type));
-      button.textContent = 'Installed';
-      button.className = '';
-    } catch (err) {
-      button.disabled = false;
-      button.textContent = 'Install';
-      state.status[inst.id] = { state: 'error', text: errorText(err) };
-      renderStatus();
-    }
-  };
-  const title = el('a', { className: 'title', textContent: hit.title });
+  let action;
+  if (hit.installed) {
+    action = el('span', { className: 'installed', textContent: 'Installed' });
+  } else {
+    action = el('button', { textContent: 'Install' });
+    action.onclick = async () => {
+      action.disabled = true;
+      action.textContent = 'Installing';
+      try {
+        Object.assign(inst, await api.install(inst.id, hit.projectId, type));
+        action.replaceWith(el('span', { className: 'installed', textContent: 'Installed' }));
+      } catch (err) {
+        action.disabled = false;
+        action.textContent = 'Install';
+        state.status[inst.id] = { state: 'error', text: errorText(err) };
+        renderStatus();
+      }
+    };
+  }
+  const title = el('a', { className: 'title', textContent: hit.title, tabIndex: 0 });
   title.onclick = () => api.openExternal(`https://modrinth.com/${type}/${hit.slug}`);
   return el('li', {}, [
-    iconFor(hit.iconUrl),
+    thumb(hit.iconUrl),
     el('div', { className: 'info' }, [
-      el('div', {}, [title, el('span', { className: 'muted', textContent: ` by ${hit.author} · ${hit.downloads.toLocaleString()} downloads` })]),
+      el('div', {}, [title, el('span', { className: 'by', textContent: ` by ${hit.author}` })]),
       el('div', { className: 'desc', textContent: hit.description }),
     ]),
-    button,
+    el('span', { className: 'version', textContent: formatDownloads(hit.downloads) }),
+    action,
   ]);
 }
 
@@ -323,13 +398,13 @@ function renderServer() {
   const server = currentServer();
   const s = state.serverStatus[server.id] || { state: 'idle', text: '' };
   $('#srv-name').textContent = server.name;
-  $('#srv-meta').textContent = `${serverFlavor(server)} ${server.mcVersion} · ${server.dir}`;
+  $('#srv-meta').textContent = `${serverFlavor(server)} ${server.mcVersion} in ${server.dir}`;
   const statusEl = $('#srv-status');
   statusEl.textContent = s.text;
   statusEl.className = `status${s.state === 'error' ? ' error' : ''}`;
 
   const toggle = $('#srv-toggle');
-  toggle.textContent = { idle: 'Start', error: 'Start', starting: 'Starting…', running: 'Stop', stopping: 'Stopping…' }[s.state];
+  toggle.textContent = { idle: 'Start server', error: 'Start server', starting: 'Starting', running: 'Stop server', stopping: 'Stopping' }[s.state];
   toggle.disabled = s.state === 'starting' || s.state === 'stopping';
   $('#srv-remove').disabled = s.state !== 'idle' && s.state !== 'error';
 
@@ -339,10 +414,10 @@ function renderServer() {
   const matching = state.instances.filter((i) => i.gameVersion === server.mcVersion);
   select.replaceChildren(...(matching.length
     ? matching.map((i) => el('option', { value: i.id, textContent: `${i.name} (${loaderLabel(i)})` }))
-    : [el('option', { value: '', textContent: `No ${server.mcVersion} instances` })]));
+    : [el('option', { value: '', textContent: `No ${server.mcVersion} instances yet` })]));
   if (matching.some((i) => i.id === previous)) select.value = previous;
   const join = $('#srv-join');
-  join.textContent = s.state === 'running' ? 'Join' : 'Start & Join';
+  join.textContent = s.state === 'running' ? 'Join' : 'Start and join';
   join.disabled = !matching.length || s.state === 'stopping' || isBusy(select.value);
 
   renderServerLog(false);
@@ -379,7 +454,7 @@ async function openNewDialog() {
   try {
     await fillVersions();
   } catch (err) {
-    $('#new-error').textContent = `Could not load versions: ${errorText(err)}`;
+    $('#new-error').textContent = `Couldn't load the version list. Check your internet connection. (${errorText(err)})`;
   }
 }
 
@@ -417,41 +492,66 @@ async function saveSettings() {
 
 let accountState = { selected: null, canUseOffline: false, accounts: [] };
 
-function accountLabel(account) {
-  if (account.type === 'microsoft') return account.name;
-  return `${account.name} (offline${account.locked ? ', locked' : ''})`;
+// Shows the face (plus hat layer) from a Minecraft skin, or the account's initial.
+function setAvatar(node, account, size) {
+  node.style.width = node.style.height = `${size}px`;
+  if (account?.skinUrl) {
+    const scale = size / 8;
+    const sheet = `${64 * scale}px ${64 * scale}px`;
+    node.textContent = '';
+    node.style.background = `url("${account.skinUrl}") ${-40 * scale}px ${-8 * scale}px / ${sheet} no-repeat, `
+      + `url("${account.skinUrl}") ${-8 * scale}px ${-8 * scale}px / ${sheet} no-repeat`;
+  } else {
+    node.style.background = '';
+    node.textContent = account ? account.name.charAt(0).toUpperCase() : '+';
+  }
+}
+
+function kindLabel(account) {
+  if (account.type === 'microsoft') return 'Microsoft account';
+  return account.locked ? 'Offline, locked' : 'Offline account';
 }
 
 function renderAccounts(next) {
   if (next) accountState = next;
   const { accounts, selected, canUseOffline } = accountState;
+  const active = accounts.find((a) => a.id === selected) || null;
 
-  const select = $('#account-select');
-  select.replaceChildren(...(accounts.length
-    ? accounts.map((a) => el('option', { value: a.id, textContent: accountLabel(a) }))
-    : [el('option', { value: '', textContent: 'No account' })]));
-  select.value = selected || '';
-  select.disabled = !accounts.length;
+  const chip = $('#account-chip');
+  chip.classList.toggle('needs-account', !active);
+  setAvatar($('#account-avatar'), active, 32);
+  $('#account-name').textContent = active ? active.name : 'Add an account';
+  $('#account-kind').textContent = active ? kindLabel(active) : 'Needed to play';
 
   $('#account-list').replaceChildren(...(accounts.length
     ? accounts.map((a) => {
-      const remove = el('button', { className: 'danger', textContent: 'Remove', type: 'button' });
+      const avatar = el('span', { className: 'avatar' });
+      setAvatar(avatar, a, 30);
+      let use;
+      if (a.id === selected) {
+        use = el('span', { className: 'selected-note', textContent: 'In use' });
+      } else {
+        use = el('button', { textContent: 'Use', type: 'button' });
+        use.onclick = async () => renderAccounts(await api.selectAccount(a.id));
+      }
+      const remove = el('button', { className: 'quiet danger', textContent: 'Remove', type: 'button' });
       remove.onclick = async () => renderAccounts(await api.removeAccount(a.id));
       return el('li', {}, [
+        avatar,
         el('div', { className: 'info' }, [
           el('div', { className: 'title', textContent: a.name }),
-          el('div', { className: 'desc', textContent: a.locked ? 'Locked until a Microsoft account that owns the game is added' : '' }),
+          el('div', { className: 'kind', textContent: kindLabel(a) }),
         ]),
-        el('span', { className: 'badge', textContent: a.type === 'microsoft' ? 'Microsoft' : 'Offline' }),
+        use,
         remove,
       ]);
     })
-    : [el('li', { className: 'empty-row', textContent: 'No accounts yet.' })]));
+    : [emptyRow('No accounts yet. Add your Microsoft account to play.')]));
 
   $('#offline-name').disabled = !canUseOffline;
   $('#add-offline').disabled = !canUseOffline;
   $('#offline-hint').textContent = canUseOffline
-    ? 'Offline accounts are for local and offline-mode servers. They stay available while your Microsoft account is signed in.'
+    ? 'Offline accounts are for local and offline-mode servers. They work while your Microsoft account is signed in.'
     : 'Offline accounts unlock after you add a Microsoft account that owns Minecraft: Java Edition.';
 }
 
@@ -505,8 +605,10 @@ function cancelMicrosoftLogin() {
 
 // ---------- Wiring ----------
 
-api.onStatus(({ id, state: s, text }) => {
-  state.status[id] = { state: s, text };
+api.onStatus(({ id, state: s, text, progress }) => {
+  const previous = state.status[id];
+  state.status[id] = { state: s, text, progress: progress ?? previous?.progress ?? null };
+  renderSidebar();
   if (id === state.selected) {
     renderStatus();
     // Refresh the mods list after an install finishes (dependencies may have been added).
@@ -548,7 +650,7 @@ for (const button of document.querySelectorAll('.tabs button')) {
 $('#play').onclick = async () => {
   const inst = current();
   state.logs[inst.id] = [];
-  state.status[inst.id] = { state: 'installing', text: 'Preparing…' };
+  state.status[inst.id] = { state: 'installing', text: 'Getting ready', progress: 0 };
   renderStatus();
   try {
     await api.launch(inst.id);
@@ -562,7 +664,7 @@ $('#open-folder').onclick = () => api.openFolder(state.selected);
 
 $('#delete-instance').onclick = async () => {
   const inst = current();
-  if (!confirm(`Delete "${inst.name}" and all its worlds and mods? Synced items in the shared folder are kept.`)) return;
+  if (!confirm(`Delete "${inst.name}" with all its worlds and mods? Anything in shared sync folders is kept.`)) return;
   try {
     await api.deleteInstance(inst.id);
     state.selected = null;
@@ -577,18 +679,18 @@ $('#search-form').onsubmit = (event) => {
   event.preventDefault();
   runSearch(false);
 };
-$('#search-type').onchange = () => runSearch(false);
+$('#search-type').onchange = () => (state.search.done ? runSearch(false) : renderSearchIntro());
 $('#load-more').onclick = () => runSearch(true);
 
 $('#new-instance').onclick = openNewDialog;
+$('#empty-new-instance').onclick = openNewDialog;
 $('#new-snapshots').onchange = fillVersions;
 $('#new-cancel').onclick = () => $('#new-dialog').close();
 $('#new-form').onsubmit = createInstance;
 
 $('#memory').onchange = saveSettings;
 
-$('#account-select').onchange = async () => renderAccounts(await api.selectAccount($('#account-select').value));
-$('#manage-accounts').onclick = () => {
+$('#account-chip').onclick = () => {
   $('#accounts-error').textContent = '';
   $('#accounts-dialog').showModal();
 };
@@ -625,7 +727,7 @@ $('#srv-open-folder').onclick = () => api.openServerFolder(state.selectedServer)
 
 $('#srv-remove').onclick = async () => {
   const server = currentServer();
-  if (!confirm(`Remove "${server.name}" from the launcher? The server folder itself is not touched.`)) return;
+  if (!confirm(`Remove "${server.name}" from Hojicha? The server folder itself stays where it is.`)) return;
   try {
     await api.removeServer(server.id);
     await refreshServers();
@@ -680,4 +782,5 @@ $('#srv-command-form').onsubmit = async (event) => {
   await refreshAccounts();
   await refreshInstances();
   await refreshServers();
+  renderSearchIntro();
 })();

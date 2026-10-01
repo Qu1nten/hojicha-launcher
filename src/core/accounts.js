@@ -44,6 +44,7 @@ function summary() {
       id: a.id,
       type: a.type,
       name: a.name,
+      skinUrl: a.skinUrl || null,
       locked: a.type === 'offline' && !unlocked,
     })),
   };
@@ -97,6 +98,7 @@ function storeMicrosoft(store, ms, session) {
     type: 'microsoft',
     name: session.name,
     uuid: session.uuid,
+    skinUrl: session.skinUrl,
     ownsGame: true,
     refreshToken: cipher.encrypt(ms.refresh_token),
     accessToken: cipher.encrypt(session.accessToken),
@@ -142,7 +144,7 @@ function cancelMicrosoftLogin() {
 async function launchIdentity() {
   const store = load();
   const account = current(store);
-  if (!account) throw new Error('Add an account first: click Manage next to Account in the sidebar.');
+  if (!account) throw new Error('Add an account first: click "Add an account" at the bottom of the sidebar.');
 
   if (account.type === 'offline') {
     if (!hasVerifiedOwner(store)) {
