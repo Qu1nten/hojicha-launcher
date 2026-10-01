@@ -56,7 +56,7 @@ for (just you, or everyone on the PC) and where it goes. It always creates its o
 the folder you pick (default `%LOCALAPPDATA%\Programs\Hojicha Launcher`), and adds desktop and Start menu
 shortcuts.
 
-To uninstall, run `Uninstall Hojicha Launcher.exe` in the install folder, or use **Settings → Apps**. It removes
+To uninstall, run `uninstall.exe` in the install folder, or use **Settings → Apps**. It removes
 only the launcher's own files, and keeps your instances and settings in `%APPDATA%\Hojicha Launcher\data`.
 
 ## Building from source

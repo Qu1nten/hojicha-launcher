@@ -2,6 +2,16 @@
 
 !include "app-files.nsh"
 
+!macro customHeader
+  ; Plain "uninstall.exe" in the install folder (default: "Uninstall Hojicha Launcher.exe").
+  !undef UNINSTALL_FILENAME
+  !define UNINSTALL_FILENAME "uninstall.exe"
+
+  ; The real default folder is set at runtime; this only gives Browse its auto-append, so picking
+  ; T:\ fills in T:\Hojicha Launcher.
+  InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
+!macroend
+
 !define MUI_DIRECTORYPAGE_TEXT_TOP "Choose where to install Hojicha Launcher. It gets its own $\"${APP_FILENAME}$\" folder inside the folder you pick.$\r$\n$\r$\nYour instances, accounts and settings are stored separately, so moving the launcher doesn't touch them."
 
 ; Runs when the install starts, after the folder page. Whatever folder was picked, install into a
