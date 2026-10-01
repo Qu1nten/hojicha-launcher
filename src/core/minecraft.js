@@ -1,0 +1,302 @@
+const fs = require('fs');
+const path = require('path');
+const AdmZip = require('adm-zip');
+const paths = require('./paths');
+const { readJson, writeJson } = require('./util');
+const { fetchJson, downloadFile, runPool } = require('./http');
+const { ensureJava } = require('./java');
+
+const MANIFEST_URL = 'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json';
+const FABRIC_META = 'https://meta.fabricmc.net/v2';
+const RESOURCES_URL = 'https://resources.download.minecraft.net';
+const MOJANG_LIBRARIES = 'https://libraries.minecraft.net/';
+
+const OS_NAME = { win32: 'windows', darwin: 'osx', linux: 'linux' }[process.platform];
+
+// ---------- Version lists ----------
+
+let manifestCache = null;
+async function getVersionManifest() {
+  if (!manifestCache) manifestCache = await fetchJson(MANIFEST_URL);
+  return manifestCache;
+}
+
+async function listGameVersions() {
+  const manifest = await getVersionManifest();
+  return manifest.versions.map((v) => ({ id: v.id, type: v.type }));
+}
+
+async function latestFabricLoader(gameVersion) {
+  const loaders = await fetchJson(`${FABRIC_META}/versions/loader/${encodeURIComponent(gameVersion)}`);
+  if (!loaders.length) throw new Error(`Fabric does not support Minecraft ${gameVersion}`);
+  return (loaders.find((l) => l.loader.stable) || loaders[0]).loader.version;
+}
+
+// ---------- Version JSONs ----------
+// Each version JSON is cached under data/versions/<id>/<id>.json so installed instances launch offline.
+
+async function getVanillaVersionJson(id) {
+  const file = path.join(paths.versions, id, `${id}.json`);
+  if (!fs.existsSync(file)) {
+    const entry = (await getVersionManifest()).versions.find((v) => v.id === id);
+    if (!entry) throw new Error(`Unknown Minecraft version ${id}`);
+    await downloadFile(entry.url, file, { sha1: entry.sha1 });
+  }
+  return readJson(file);
+}
+
+async function getFabricVersionJson(gameVersion, loaderVersion) {
+  const id = `fabric-loader-${loaderVersion}-${gameVersion}`;
+  const file = path.join(paths.versions, id, `${id}.json`);
+  if (!fs.existsSync(file)) {
+    const url = `${FABRIC_META}/versions/loader/${encodeURIComponent(gameVersion)}/${encodeURIComponent(loaderVersion)}/profile/json`;
+    writeJson(file, await fetchJson(url));
+  }
+  return readJson(file);
+}
+
+function libraryKey(name) {
+  const [group, artifact, , classifier] = name.split('@')[0].split(':');
+  return `${group}:${artifact}:${classifier || ''}`;
+}
+
+// Applies a loader profile (child) on top of the vanilla version (parent).
+function mergeVersions(parent, child) {
+  const childKeys = new Set(child.libraries.map((l) => libraryKey(l.name)));
+  return {
+    ...parent,
+    id: child.id,
+    mainClass: child.mainClass || parent.mainClass,
+    libraries: [...child.libraries, ...parent.libraries.filter((l) => !childKeys.has(libraryKey(l.name)))],
+    arguments: parent.arguments && {
+      game: [...(parent.arguments.game || []), ...(child.arguments?.game || [])],
+      jvm: [...(parent.arguments.jvm || []), ...(child.arguments?.jvm || [])],
+    },
+  };
+}
+
+// Returns the full version JSON for an instance; jarId is the vanilla version whose client jar is used.
+async function resolveVersion(instance) {
+  const vanilla = await getVanillaVersionJson(instance.gameVersion);
+  vanilla.jarId = vanilla.id;
+  if (instance.loader !== 'fabric') return vanilla;
+  return mergeVersions(vanilla, await getFabricVersionJson(instance.gameVersion, instance.loaderVersion));
+}
+
+// ---------- Rules & libraries ----------
+
+function archMatches(arch) {
+  if (arch === 'x86') return process.arch === 'ia32';
+  return arch === process.arch;
+}
+
+function ruleMatches(rule, features) {
+  if (rule.os) {
+    if (rule.os.name && rule.os.name !== OS_NAME) return false;
+    if (rule.os.arch && !archMatches(rule.os.arch)) return false;
+  }
+  if (rule.features) {
+    for (const [key, value] of Object.entries(rule.features)) {
+      if (Boolean(features[key]) !== value) return false;
+    }
+  }
+  return true;
+}
+
+// Mojang rule semantics: start disallowed, the last matching rule decides.
+function rulesAllow(rules, features = {}) {
+  if (!rules?.length) return true;
+  let allowed = false;
+  for (const rule of rules) {
+    if (ruleMatches(rule, features)) allowed = rule.action === 'allow';
+  }
+  return allowed;
+}
+
+// Newer versions list natives for every arch (natives-windows, natives-windows-arm64, ...); keep only ours.
+function isForeignNative(name) {
+  const match = name.match(/:natives-([a-z]+)(?:-([a-z0-9_]+))?$/);
+  if (!match) return false;
+  const os = match[1] === 'macos' ? 'osx' : match[1];
+  if (os !== OS_NAME) return true;
+  const ourArch = process.arch === 'x64' ? undefined : process.arch === 'ia32' ? 'x86' : process.arch;
+  return match[2] !== ourArch;
+}
+
+function mavenPath(name) {
+  const [coords, ext = 'jar'] = name.split('@');
+  const [group, artifact, version, classifier] = coords.split(':');
+  const file = `${artifact}-${version}${classifier ? `-${classifier}` : ''}.${ext}`;
+  return [...group.split('.'), artifact, version, file].join('/');
+}
+
+function toDownload(artifact, fallbackPath) {
+  const rel = artifact.path || fallbackPath;
+  return { path: path.join(paths.libraries, rel), url: artifact.url, sha1: artifact.sha1, size: artifact.size };
+}
+
+// Splits the version's libraries into classpath jars and native jars that need extracting.
+function collectLibraries(version) {
+  const classpath = [];
+  const natives = [];
+  for (const lib of version.libraries) {
+    if (!rulesAllow(lib.rules) || isForeignNative(lib.name)) continue;
+    const downloads = lib.downloads;
+    if (downloads?.artifact) {
+      const entry = toDownload(downloads.artifact, mavenPath(lib.name));
+      classpath.push(entry);
+      if (lib.name.includes(':natives-')) natives.push(entry);
+    } else if (!downloads) {
+      // Fabric-style entry: just a maven name and repository url.
+      const rel = mavenPath(lib.name);
+      classpath.push({ path: path.join(paths.libraries, rel), url: (lib.url || MOJANG_LIBRARIES) + rel, sha1: lib.sha1, size: lib.size });
+    }
+    // Pre-1.19 versions ship natives as a classifier of the library.
+    const nativeKey = lib.natives?.[OS_NAME];
+    if (nativeKey) {
+      const classifier = nativeKey.replace('${arch}', process.arch === 'ia32' ? '32' : '64');
+      const artifact = downloads?.classifiers?.[classifier];
+      if (artifact) natives.push(toDownload(artifact, mavenPath(`${lib.name}:${classifier}`)));
+    }
+  }
+  return { classpath, natives };
+}
+
+function extractNatives(jars, dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  for (const jar of jars) {
+    for (const entry of new AdmZip(jar).getEntries()) {
+      if (entry.isDirectory || entry.entryName.startsWith('META-INF/')) continue;
+      if (!/\.(dll|so|dylib|jnilib)$/i.test(entry.entryName)) continue;
+      const target = path.join(dir, path.basename(entry.entryName));
+      // Skip existing files: another running instance of the same version may have them locked.
+      if (!fs.existsSync(target)) fs.writeFileSync(target, entry.getData());
+    }
+  }
+}
+
+// ---------- Install ----------
+
+async function installAssets(version, report) {
+  const index = version.assetIndex;
+  const indexFile = path.join(paths.assets, 'indexes', `${index.id}.json`);
+  await downloadFile(index.url, indexFile, { sha1: index.sha1, size: index.size });
+  const { objects, virtual, map_to_resources: mapToResources } = readJson(indexFile);
+
+  const unique = new Map();
+  for (const obj of Object.values(objects)) unique.set(obj.hash, obj);
+  await runPool([...unique.values()], 16, (obj) => {
+    const sub = obj.hash.slice(0, 2);
+    return downloadFile(`${RESOURCES_URL}/${sub}/${obj.hash}`, path.join(paths.assets, 'objects', sub, obj.hash), { sha1: obj.hash, size: obj.size });
+  }, (done, total) => report(`Downloading assets ${done}/${total}`));
+
+  // Very old versions read assets by name instead of by hash.
+  if (virtual || mapToResources) {
+    const virtualDir = path.join(paths.assets, 'virtual', index.id);
+    for (const [name, obj] of Object.entries(objects)) {
+      const target = path.join(virtualDir, name);
+      if (fs.existsSync(target)) continue;
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(path.join(paths.assets, 'objects', obj.hash.slice(0, 2), obj.hash), target);
+    }
+    return { gameAssets: virtualDir, mapToResources: Boolean(mapToResources) };
+  }
+  return { gameAssets: paths.assets, mapToResources: false };
+}
+
+async function installGame(version, report) {
+  const client = version.downloads.client;
+  const clientJar = path.join(paths.versions, version.jarId, `${version.jarId}.jar`);
+  report('Downloading game jar');
+  await downloadFile(client.url, clientJar, { sha1: client.sha1, size: client.size });
+
+  const { classpath, natives } = collectLibraries(version);
+  const unique = new Map();
+  for (const lib of [...classpath, ...natives]) if (lib.url) unique.set(lib.path, lib);
+  await runPool([...unique.values()], 8, (lib) => downloadFile(lib.url, lib.path, lib),
+    (done, total) => report(`Downloading libraries ${done}/${total}`));
+
+  const nativesDir = path.join(paths.versions, version.jarId, 'natives');
+  extractNatives(natives.map((n) => n.path), nativesDir);
+
+  const assets = await installAssets(version, report);
+  return { clientJar, classpath: classpath.map((l) => l.path), nativesDir, ...assets };
+}
+
+// ---------- Launch ----------
+
+// account = { name, uuid, accessToken, userType } from accounts.launchIdentity().
+// options.join = "host:port" makes the game connect to that server straight after starting.
+function buildArgs(version, install, gameDir, settings, account, options = {}) {
+  const classpath = [...install.classpath, install.clientJar].join(path.delimiter);
+  const vars = {
+    auth_player_name: account.name,
+    auth_uuid: account.uuid,
+    auth_access_token: account.accessToken,
+    auth_session: account.accessToken,
+    auth_xuid: '',
+    clientid: '',
+    user_type: account.userType,
+    user_properties: '{}',
+    version_name: version.id,
+    version_type: version.type,
+    game_directory: gameDir,
+    assets_root: paths.assets,
+    game_assets: install.gameAssets,
+    assets_index_name: version.assetIndex.id,
+    natives_directory: install.nativesDir,
+    library_directory: paths.libraries,
+    classpath,
+    classpath_separator: path.delimiter,
+    launcher_name: 'hojicha-launcher',
+    launcher_version: '0.1.0',
+    quickPlayMultiplayer: options.join || '',
+  };
+  const features = { is_quick_play_multiplayer: Boolean(options.join) };
+  const sub = (s) => s.replace(/\$\{(\w+)\}/g, (match, key) => (key in vars ? vars[key] : match));
+  const expand = (list) => list.flatMap((arg) => {
+    if (typeof arg === 'string') return [sub(arg)];
+    return rulesAllow(arg.rules, features) ? [].concat(arg.value).map(sub) : [];
+  });
+
+  const jvm = [`-Xmx${settings.memoryMb}M`];
+  if (version.arguments?.jvm) jvm.push(...expand(version.arguments.jvm));
+  else jvm.push(`-Djava.library.path=${install.nativesDir}`, '-cp', classpath);
+
+  const game = version.arguments?.game
+    ? expand(version.arguments.game)
+    : version.minecraftArguments.split(' ').map(sub);
+
+  // Versions before quick play (pre-1.20) use the older --server/--port arguments.
+  const hasQuickPlay = JSON.stringify(version.arguments?.game || []).includes('is_quick_play_multiplayer');
+  if (options.join && !hasQuickPlay) {
+    const [host, port] = options.join.split(':');
+    game.push('--server', host, '--port', port);
+  }
+
+  return [...jvm, version.mainClass, ...game];
+}
+
+// Installs everything the instance needs and returns what to spawn.
+async function prepare(instance, gameDir, settings, account, report, options = {}) {
+  report('Resolving version');
+  const version = await resolveVersion(instance);
+  const install = await installGame(version, report);
+
+  if (install.mapToResources) {
+    fs.cpSync(install.gameAssets, path.join(gameDir, 'resources'), { recursive: true, force: false });
+  }
+
+  const java = settings.javaPath || await ensureJava(version.javaVersion?.component || 'jre-legacy',
+    (done, total) => report(`Downloading Java ${done}/${total}`));
+
+  return { java, args: buildArgs(version, install, gameDir, settings, account, options) };
+}
+
+// Java for a given Minecraft version (used to run servers with the same runtime as the game).
+async function javaFor(gameVersion, report) {
+  const version = await getVanillaVersionJson(gameVersion);
+  return ensureJava(version.javaVersion?.component || 'jre-legacy', (done, total) => report(`Downloading Java ${done}/${total}`));
+}
+
+module.exports = { listGameVersions, latestFabricLoader, prepare, javaFor };
