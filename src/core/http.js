@@ -4,8 +4,10 @@ const crypto = require('crypto');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 
+const { version: LAUNCHER_VERSION } = require('../../package.json');
+
 // Modrinth asks every client to send an identifying User-Agent.
-const USER_AGENT = 'HojichaLauncher/0.1.0';
+const USER_AGENT = `HojichaLauncher/${LAUNCHER_VERSION}`;
 
 async function fetchJson(url) {
   const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
@@ -59,4 +61,4 @@ async function runPool(items, limit, worker, onProgress) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
 }
 
-module.exports = { USER_AGENT, fetchJson, downloadFile, runPool };
+module.exports = { LAUNCHER_VERSION, USER_AGENT, fetchJson, downloadFile, runPool };
