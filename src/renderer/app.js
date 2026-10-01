@@ -233,11 +233,83 @@ async function loadMods() {
       await api.removeMod(inst.id, mod.file);
       loadMods();
     };
+    let version;
+    if (mod.fromModrinth) {
+      version = el('button', {
+        className: 'version-button',
+        textContent: mod.versionNumber || 'Unknown version',
+        title: 'Change version',
+        ariaLabel: `Change version of ${mod.title}, now ${mod.versionNumber}`,
+      });
+      version.onclick = () => openVersionPicker(inst, mod);
+    } else {
+      version = el('span', { className: 'version', textContent: 'Added by hand' });
+    }
     return el('li', { title: mod.file }, [
       thumb(mod.iconUrl),
       el('div', { className: 'info' }, [el('div', { className: 'title', textContent: mod.title })]),
-      el('span', { className: 'version', textContent: mod.versionNumber }),
+      version,
       remove,
+    ]);
+  }));
+}
+
+// ---------- Version picker ----------
+
+const CHANNELS = { release: 'Release', beta: 'Beta', alpha: 'Alpha' };
+const dateFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+
+async function openVersionPicker(inst, mod) {
+  const list = $('#versions-list');
+  const errorEl = $('#versions-error');
+  errorEl.textContent = '';
+  $('#versions-title').textContent = `Versions of ${mod.title}`;
+  $('#versions-hint').textContent = `Every version that works with ${loaderLabel(inst)}, newest first.`;
+  list.replaceChildren(emptyRow('Loading versions…'));
+  $('#versions-dialog').showModal();
+
+  let versions;
+  try {
+    versions = await api.listModVersions(inst.id, mod.file);
+  } catch (err) {
+    list.replaceChildren();
+    errorEl.textContent = errorText(err);
+    return;
+  }
+  if (!versions.length) {
+    list.replaceChildren(emptyRow(`Modrinth has no versions of ${mod.title} for ${loaderLabel(inst)}.`));
+    return;
+  }
+
+  list.replaceChildren(...versions.map((v) => {
+    let action;
+    if (v.current) {
+      action = el('span', { className: 'installed', textContent: 'Installed' });
+    } else {
+      action = el('button', { textContent: 'Use this version', type: 'button' });
+      action.onclick = async () => {
+        for (const button of list.querySelectorAll('button')) button.disabled = true;
+        action.textContent = 'Switching';
+        errorEl.textContent = '';
+        try {
+          const result = await api.setModVersion(inst.id, mod.file, v.id);
+          $('#versions-dialog').close();
+          await loadMods();
+          state.status[inst.id] = { state: 'idle', text: `${result.title} is now on version ${result.versionNumber}.` };
+          renderStatus();
+        } catch (err) {
+          errorEl.textContent = errorText(err);
+          for (const button of list.querySelectorAll('button')) button.disabled = false;
+          action.textContent = 'Use this version';
+        }
+      };
+    }
+    return el('li', {}, [
+      el('div', { className: 'info' }, [
+        el('div', { className: 'title', textContent: v.versionNumber }),
+        el('div', { className: 'channel', textContent: `${CHANNELS[v.type] || v.type}, ${dateFormat.format(new Date(v.published))}` }),
+      ]),
+      action,
     ]);
   }));
 }
@@ -699,6 +771,8 @@ $('#new-cancel').onclick = () => $('#new-dialog').close();
 $('#new-form').onsubmit = createInstance;
 
 $('#memory').onchange = saveSettings;
+
+$('#versions-close').onclick = () => $('#versions-dialog').close();
 
 $('#account-chip').onclick = () => {
   $('#accounts-error').textContent = '';

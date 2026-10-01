@@ -37,10 +37,16 @@ async function search(id, query, type = 'mod', offset = 0) {
 }
 
 // Newest version of a project that fits the instance, preferring full releases over betas.
-async function pickVersion(instance, projectId, type) {
+// All versions of a project that work with the instance (its Minecraft version, and loader for mods), newest first.
+function compatibleVersions(instance, projectId, type) {
   const params = new URLSearchParams({ game_versions: JSON.stringify([instance.gameVersion]) });
   if (type === 'mod') params.set('loaders', JSON.stringify([instance.loader]));
-  const versions = await fetchJson(`${API}/project/${projectId}/version?${params}`);
+  return fetchJson(`${API}/project/${projectId}/version?${params}`);
+}
+
+// Newest version that fits the instance, preferring full releases over betas.
+async function pickVersion(instance, projectId, type) {
+  const versions = await compatibleVersions(instance, projectId, type);
   if (!versions.length) throw new Error(`No version of this project supports ${instance.gameVersion} ${type === 'mod' ? instance.loader : ''}`.trim());
   return versions.find((v) => v.version_type === 'release') || versions[0];
 }
@@ -105,9 +111,49 @@ function listMods(id) {
     .filter((f) => /\.jar(\.disabled)?$/i.test(f))
     .map((file) => {
       const meta = instance.content[`mods/${file}`];
-      return { file, title: meta?.title || file, versionNumber: meta?.versionNumber || '', iconUrl: meta?.iconUrl || null };
+      return {
+        file,
+        title: meta?.title || file,
+        versionNumber: meta?.versionNumber || '',
+        iconUrl: meta?.iconUrl || null,
+        fromModrinth: Boolean(meta), // only these can switch versions
+      };
     })
     .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function modrinthMeta(instance, file) {
+  const meta = instance.content[`mods/${file}`];
+  if (!meta) throw new Error("This mod wasn't installed from Modrinth, so Hojicha can't list its other versions.");
+  return meta;
+}
+
+// Every version of an installed mod that works with the instance, newest first.
+async function listModVersions(id, file) {
+  const instance = instances.get(id);
+  const meta = modrinthMeta(instance, file);
+  const versions = await compatibleVersions(instance, meta.projectId, 'mod');
+  return versions.map((v) => ({
+    id: v.id,
+    versionNumber: v.version_number,
+    type: v.version_type, // release, beta or alpha
+    published: v.date_published,
+    current: v.id === meta.versionId,
+  }));
+}
+
+// Swaps an installed mod for another of its versions (plus any required dependencies that version adds).
+async function setModVersion(id, file, versionId, report = () => {}) {
+  const instance = instances.get(id);
+  const meta = modrinthMeta(instance, file);
+  const version = await fetchJson(`${API}/version/${encodeURIComponent(versionId)}`);
+  if (version.project_id !== meta.projectId) throw new Error('That version belongs to a different mod.');
+  try {
+    await installVersion(instance, version, 'mod', report, new Set());
+  } finally {
+    instances.save(instance);
+  }
+  return { title: meta.title, versionNumber: version.version_number };
 }
 
 function removeMod(id, file) {
@@ -118,4 +164,4 @@ function removeMod(id, file) {
   instances.save(instance);
 }
 
-module.exports = { search, install, listMods, removeMod };
+module.exports = { search, install, listMods, removeMod, listModVersions, setModVersion };
