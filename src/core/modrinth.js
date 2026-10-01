@@ -16,7 +16,9 @@ async function search(id, query, type = 'mod', offset = 0) {
   const instance = instances.get(id);
   const facets = [[`project_type:${type}`], [`versions:${instance.gameVersion}`]];
   if (type === 'mod') facets.push([`categories:${instance.loader}`]);
-  const params = new URLSearchParams({ query, facets: JSON.stringify(facets), limit: '20', offset: String(offset) });
+  // With no search text, show the most downloaded projects instead of an arbitrary "relevance" order.
+  const index = query ? 'relevance' : 'downloads';
+  const params = new URLSearchParams({ query, index, facets: JSON.stringify(facets), limit: '20', offset: String(offset) });
   const result = await fetchJson(`${API}/search?${params}`);
   const installed = installedProjects(instance);
   return {

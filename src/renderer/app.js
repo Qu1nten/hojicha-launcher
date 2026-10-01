@@ -123,11 +123,12 @@ function renderMain() {
   if (showInstance) renderInstance();
 }
 
+// Forget the previous instance's results; the Browse tab loads fresh ones the next time it is shown.
 function resetSearch() {
   state.search = { query: '', type: $('#search-type').value, offset: 0, total: 0, done: false };
   $('#search-query').value = '';
+  $('#search-results').replaceChildren();
   $('#load-more').hidden = true;
-  renderSearchIntro();
 }
 
 function selectInstance(id) {
@@ -207,6 +208,7 @@ function showTab(tab) {
     panel.hidden = panel.id !== `tab-${tab}`;
   }
   if (tab === 'mods') loadMods();
+  if (tab === 'browse' && !state.search.done && !state.search.loading) runSearch(false); // show popular projects straight away
   if (tab === 'sync') renderSync();
   if (tab === 'log') renderLog();
 }
@@ -275,14 +277,8 @@ function renderLog() {
 // ---------- Modrinth browsing ----------
 
 const SEARCH_NOUNS = { mod: 'mods', resourcepack: 'resource packs', shader: 'shaders' };
-
-function renderSearchIntro() {
-  const inst = current();
-  if (!inst) return;
-  const type = $('#search-type').value;
-  const target = type === 'mod' ? loaderLabel(inst) : `Minecraft ${inst.gameVersion}`;
-  $('#search-results').replaceChildren(emptyRow(`Search for ${SEARCH_NOUNS[type]} that work with ${target}. Leave the box empty to see the most popular ones.`));
-}
+let searchRequest = 0; // only the newest search may update the list
+let searchTimer = null;
 
 async function runSearch(append) {
   const inst = current();
@@ -296,16 +292,24 @@ async function runSearch(append) {
   if (s.type === 'mod' && inst.loader === 'vanilla') {
     results.replaceChildren(emptyRow("This instance has no mod loader, so it can't use mods. Create a Fabric instance to add mods."));
     $('#load-more').hidden = true;
+    s.done = true;
     return;
   }
 
+  const request = ++searchRequest;
+  // First load for this instance: say what's coming. Later searches keep the old results until new ones arrive.
+  if (!append && !s.done) results.replaceChildren(emptyRow(`Loading popular ${SEARCH_NOUNS[s.type]}…`));
   let page;
+  s.loading = true;
   try {
     page = await api.search(inst.id, s.query, s.type, s.offset);
   } catch (err) {
-    results.replaceChildren(emptyRow(`Modrinth couldn't be reached: ${errorText(err)}`));
+    if (request === searchRequest) results.replaceChildren(emptyRow(`Modrinth couldn't be reached. Check your internet connection. (${errorText(err)})`));
     return;
+  } finally {
+    if (request === searchRequest) s.loading = false;
   }
+  if (request !== searchRequest || inst.id !== state.selected) return;
   const rows = page.hits.map((hit) => searchRow(inst, hit, s.type));
   if (append) results.append(...rows);
   else {
@@ -677,9 +681,15 @@ $('#delete-instance').onclick = async () => {
 
 $('#search-form').onsubmit = (event) => {
   event.preventDefault();
+  clearTimeout(searchTimer);
   runSearch(false);
 };
-$('#search-type').onchange = () => (state.search.done ? runSearch(false) : renderSearchIntro());
+// Search as you type, once typing pauses.
+$('#search-query').oninput = () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => runSearch(false), 350);
+};
+$('#search-type').onchange = () => runSearch(false);
 $('#load-more').onclick = () => runSearch(true);
 
 $('#new-instance').onclick = openNewDialog;
@@ -782,5 +792,4 @@ $('#srv-command-form').onsubmit = async (event) => {
   await refreshAccounts();
   await refreshInstances();
   await refreshServers();
-  renderSearchIntro();
 })();
