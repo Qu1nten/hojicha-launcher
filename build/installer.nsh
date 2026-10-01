@@ -12,7 +12,7 @@
   InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
 !macroend
 
-!define MUI_DIRECTORYPAGE_TEXT_TOP "Choose where to install Hojicha Launcher. It gets its own $\"${APP_FILENAME}$\" folder inside the folder you pick.$\r$\n$\r$\nYour instances, accounts and settings are stored separately, so moving the launcher doesn't touch them."
+!define MUI_DIRECTORYPAGE_TEXT_TOP "Choose where to install Hojicha Launcher. It gets its own $\"${APP_FILENAME}$\" folder inside the folder you pick.$\r$\n$\r$\nYour instances and settings are kept in this folder too (in $\"instances$\", $\"synced$\", $\"meta$\" and $\"config$\"). Uninstalling leaves them there."
 
 ; Runs when the install starts, after the folder page. Whatever folder was picked, install into a
 ; "Hojicha Launcher" folder inside it, so the launcher never mixes its files with someone else's.

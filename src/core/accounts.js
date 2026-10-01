@@ -1,10 +1,9 @@
-const path = require('path');
 const crypto = require('crypto');
 const paths = require('./paths');
 const auth = require('./auth');
 const { readJson, writeJson } = require('./util');
 
-// Accounts are stored in data/accounts.json. Tokens are encrypted with the OS keystore (Windows DPAPI via
+// Accounts are stored in config/accounts.json. Tokens are encrypted with the OS keystore (Windows DPAPI via
 // Electron safeStorage) when available. Offline accounts can only be added and used while a Microsoft account
 // that owns Minecraft: Java Edition is signed in, the same rule other launchers such as Prism use.
 
@@ -15,7 +14,7 @@ function setCipher(newCipher) {
   cipher = newCipher;
 }
 
-const file = () => path.join(paths.root, 'accounts.json');
+const file = () => paths.accountsFile;
 
 function load() {
   try {

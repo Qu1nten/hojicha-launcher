@@ -3,7 +3,7 @@ const path = require('path');
 const paths = require('./paths');
 const { readJson, writeJson } = require('./util');
 
-// An instance is a folder under data/instances/<id>/ holding instance.json plus the game directory (.minecraft equivalent).
+// An instance is a folder under instances/<id>/ holding instance.json plus the game directory (.minecraft equivalent).
 
 function dir(id) {
   return path.join(paths.instances, id);

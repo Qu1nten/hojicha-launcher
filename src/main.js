@@ -10,9 +10,17 @@ const modrinth = require('./core/modrinth');
 const sync = require('./core/sync');
 const servers = require('./core/servers');
 const accounts = require('./core/accounts');
+const storage = require('./core/storage');
 
 const APP_ID = 'com.hojicha.launcher'; // must match build.appId so pinned taskbar icons group with the window
 const ICON = path.join(__dirname, '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+
+// The launcher's home folder: next to the .exe when installed (see core/storage.js). Electron's own browser
+// data goes to config\electron inside it; that has to be set before the app is ready.
+const HOME = storage.chooseHome({ isPackaged: app.isPackaged, exePath: process.execPath, appData: app.getPath('appData') });
+paths.setRoot(HOME);
+storage.carryOverEncryptionKey(HOME, app.getPath('appData'), paths.electron);
+app.setPath('userData', paths.electron);
 
 let win = null;
 // Instance id -> child process (or null while it is still installing).
@@ -182,9 +190,31 @@ function createWindow() {
 
 if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
 
-app.whenReady().then(() => {
-  // %APPDATA%\Hojicha Launcher\data, shared by `npm start` and the installed .exe.
-  paths.setRoot(path.join(app.getPath('userData'), 'data'));
+// Small window shown while data from an older version is moved into the home folder.
+function showMovingWindow() {
+  const moving = new BrowserWindow({
+    width: 420, height: 140, frame: false, resizable: false, backgroundColor: '#241913', icon: ICON, show: false,
+  });
+  const page = `<body style="margin:0;height:100vh;display:grid;place-content:center;gap:6px;background:#241913;
+    color:#efe6dc;font:15px 'Segoe UI',sans-serif;text-align:center"><b>Moving your launcher data</b>
+    <span style="color:#b09d8d;font-size:13px">into ${HOME.replace(/[<&]/g, '')}<br>This only happens once.</span></body>`;
+  moving.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`);
+  moving.once('ready-to-show', () => moving.show());
+  return moving;
+}
+
+app.whenReady().then(async () => {
+  const moves = storage.pendingMoves(HOME, app.getPath('appData'));
+  let moving = null;
+  if (moves.length) {
+    moving = showMovingWindow();
+    try {
+      await storage.migrate(HOME, app.getPath('appData'), moves);
+    } catch (err) {
+      dialog.showErrorBox('Hojicha Launcher', `Some data could not be moved into ${HOME}:\n\n${err.message}\n\nNothing was lost. The launcher will try again next time it starts.`);
+    }
+  }
+  sync.relinkAll();
   if (safeStorage.isEncryptionAvailable()) {
     accounts.setCipher({
       encrypt: (text) => safeStorage.encryptString(text).toString('base64'),
@@ -194,6 +224,7 @@ app.whenReady().then(() => {
   servers.restoreAllPending();
   registerIpc();
   createWindow();
+  if (moving) moving.destroy();
 });
 
 app.on('window-all-closed', () => app.quit());
