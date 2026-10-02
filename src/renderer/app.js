@@ -111,6 +111,51 @@ function renderSidebar() {
     item.onclick = () => selectServer(server.id);
     return item;
   }));
+  renderActivity();
+}
+
+// The pill in the title bar: what's running, or being prepared, across all instances and servers.
+function renderActivity() {
+  const active = [
+    ...state.instances.flatMap((inst) => {
+      const s = state.status[inst.id]?.state;
+      if (s === 'running') return [{ name: inst.name, label: 'Playing', go: () => selectInstance(inst.id) }];
+      if (s === 'installing') return [{ name: inst.name, label: 'Preparing', preparing: true, go: () => selectInstance(inst.id) }];
+      return [];
+    }),
+    ...state.servers.flatMap((server) => {
+      const s = state.serverStatus[server.id]?.state;
+      if (!['starting', 'running', 'stopping'].includes(s)) return [];
+      const label = { starting: 'Starting', running: 'Running', stopping: 'Stopping' }[s];
+      return [{ name: server.name, label, preparing: s !== 'running', go: () => selectServer(server.id) }];
+    }),
+  ];
+  const pill = $('#activity');
+  pill.classList.toggle('running', active.length > 0 && !active.every((a) => a.preparing));
+  pill.classList.toggle('preparing', active.length > 0 && active.every((a) => a.preparing));
+  pill.disabled = active.length === 0;
+  if (active.length === 0) $('#activity-text').textContent = 'Nothing running';
+  else if (active.length === 1) $('#activity-text').textContent = `${active[0].name} · ${active[0].label}`;
+  else $('#activity-text').textContent = `${active.length} running`;
+  renderUpdate();
+  pill.title = active.map((a) => `${a.name}: ${a.label}`).join('\n');
+  pill.onclick = () => active[0]?.go();
+}
+
+// ---------- Updates ----------
+
+let update = { state: 'none' };
+
+function renderUpdate() {
+  const progress = $('#update-progress');
+  const install = $('#update-install');
+  progress.hidden = update.state !== 'downloading';
+  progress.textContent = `Downloading ${update.version ?? 'update'} · ${Math.round((update.progress ?? 0) * 100)}%`;
+  install.hidden = update.state !== 'ready';
+  // Installing closes the launcher, which would skip the game's sync-on-exit.
+  const playing = state.instances.some((inst) => isBusy(inst.id));
+  install.disabled = playing;
+  install.title = playing ? 'Close the game first' : `Restart to install Hojicha ${update.version}`;
 }
 
 function renderMain() {
@@ -703,6 +748,13 @@ api.onStatus(({ id, state: s, text, progress }) => {
   if (state.view === 'server' && currentServer()) renderServer(); // join button depends on instance state
 });
 
+api.onUpdate((next) => {
+  update = next;
+  renderUpdate();
+});
+
+$('#update-install').onclick = () => api.installUpdate().catch(() => renderUpdate());
+
 api.onServerStatus(({ id, state: s, text }) => {
   state.serverStatus[id] = { state: s, text };
   renderSidebar();
@@ -876,4 +928,6 @@ $('#srv-command-form').onsubmit = async (event) => {
   await refreshAccounts();
   await refreshInstances();
   await refreshServers();
+  update = await api.getUpdate();
+  renderUpdate();
 })();

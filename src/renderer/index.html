@@ -7,11 +7,23 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <aside id="sidebar">
+  <header class="titlebar">
     <div class="brand">
-      <img src="../../build/icon.png" alt="" width="32" height="32">
+      <img src="../../build/icon.png" alt="" width="28" height="28">
       <span>Hojicha</span>
     </div>
+    <div class="titlebar-main">
+      <span id="update-progress" class="update-progress" hidden></span>
+      <button type="button" id="update-install" class="update-install" hidden>Restart to update</button>
+      <button type="button" id="activity" class="activity" disabled>
+        <span class="activity-dot" aria-hidden="true"></span>
+        <span id="activity-text">Nothing running</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="app">
+  <aside id="sidebar">
 
     <div class="side-scroll">
       <section class="side-section" aria-labelledby="instances-heading">
@@ -134,6 +146,7 @@
       </form>
     </section>
   </main>
+  </div>
 
   <dialog id="new-dialog">
     <form id="new-form" method="dialog" class="dialog-body">

@@ -40,6 +40,10 @@ contextBridge.exposeInMainWorld('launcher', {
   serverCommand: (id, text) => invoke('servers:command', id, text),
   joinServer: (id, instanceId) => invoke('servers:join', id, instanceId),
 
+  getUpdate: () => invoke('update:get'),
+  installUpdate: () => invoke('update:install'),
+  onUpdate: (callback) => ipcRenderer.on('update', (_event, data) => callback(data)),
+
   onStatus: (callback) => ipcRenderer.on('status', (_event, data) => callback(data)),
   onLog: (callback) => ipcRenderer.on('log', (_event, data) => callback(data)),
   onServerStatus: (callback) => ipcRenderer.on('server-status', (_event, data) => callback(data)),

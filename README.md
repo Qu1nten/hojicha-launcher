@@ -91,6 +91,18 @@ If `npm start` reports that Electron failed to install, your npm skipped install
 `node node_modules/electron/install.js` once. If the build fails while extracting its tools (`EXDEV` or
 `7za.exe ... ENOENT`), use a short cache path: `$env:ELECTRON_BUILDER_CACHE = "$env:TEMP\eb-cache"; npm run dist`.
 
+### Releasing an update
+
+Installed launchers check this repo's GitHub releases on start and every 4 hours. A newer version downloads in the
+background, then the title bar shows **Restart to update** (otherwise it installs when the launcher closes). To ship one:
+
+1. Raise `version` in `package.json`.
+2. `npm run dist`, then create a GitHub release tagged `v<version>` and attach these three files from `dist\`:
+   `Hojicha-Launcher-Setup-<version>.exe`, its `.blockmap`, and `latest.yml`.
+
+Or let electron-builder upload them: with a GitHub token in `GH_TOKEN`, `npm run release` creates a draft release
+with the files attached; publish the draft to send the update out.
+
 The installer's tweaks (own sub-folder, uninstall that only deletes the launcher's files, the sidebar picture) live in
 `build/installer.nsh` and `build/after-pack.js`.
 
