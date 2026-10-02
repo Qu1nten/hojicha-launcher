@@ -68,12 +68,15 @@
       <header class="view-header">
         <div class="heading">
           <h1 id="inst-name"></h1>
-          <p id="inst-meta" class="meta"></p>
+          <p id="inst-meta" class="meta meta-row"></p>
         </div>
         <div class="header-actions">
           <button id="open-folder" class="quiet">Open folder</button>
           <button id="delete-instance" class="quiet danger">Delete</button>
-          <button id="play" class="play">Play</button>
+          <button id="play" class="play">
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path class="fill" d="M5 3.3v9.4a.9.9 0 0 0 1.4.75l7.2-4.7a.9.9 0 0 0 0-1.5L6.4 2.55A.9.9 0 0 0 5 3.3z"/></svg>
+            <span id="play-label">Play</span>
+          </button>
         </div>
       </header>
       <div id="roast" class="roast" aria-hidden="true"><div id="roast-fill" class="roast-fill"></div></div>

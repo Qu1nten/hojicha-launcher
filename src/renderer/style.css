@@ -137,7 +137,13 @@ button.play {
   padding: 10px 30px;
   border-radius: 999px;
   min-width: 128px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
+button.play .icon { font-size: 15px; }
+button.play:disabled .icon { display: none; } /* "Preparing" and "Playing" are states, not something to press */
 button.play:hover:not(:disabled) { background: var(--liquor-bright); }
 button.play:disabled { opacity: 1; background: var(--clay); color: var(--steam-dim); }
 
@@ -163,7 +169,7 @@ input:focus-visible, select:focus-visible { outline: none; }
    min/max/close buttons on the right (titleBarOverlay in main.js); the titlebar-area env() values keep
    our content clear of them. */
 .titlebar {
-  --titlebar-height: 44px;
+  --titlebar-height: 40px; /* keep in step with TITLEBAR_HEIGHT in main.js */
   height: var(--titlebar-height);
   flex-shrink: 0;
   display: flex;
@@ -345,7 +351,7 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .view[hidden] { display: none; }
 
 .view-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
-.heading { min-width: 0; }
+.heading { flex: 1; min-width: 0; }
 .heading h1 {
   font-size: var(--text-xl);
   font-weight: 700;
@@ -355,6 +361,17 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   white-space: nowrap;
 }
 .meta { color: var(--steam-dim); margin-top: 2px; }
+
+/* Line icons drawn to sit with the typeface: round ends, about the weight of its medium strokes. */
+.icon { width: 1em; height: 1em; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.icon .fill { fill: currentColor; stroke: none; }
+
+/* Under the instance name: version, time played, last played. */
+.meta-row { display: flex; align-items: center; overflow: hidden; }
+.meta-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.meta-item .icon { font-size: 15px; }
+.pixel-icon { width: 16px; height: 16px; flex-shrink: 0; image-rendering: pixelated; } /* 16x16 pixel art: keep it sharp */
+.meta-item + .meta-item::before { content: ""; width: 4px; height: 4px; margin: 0 12px; border-radius: 50%; background: var(--clay); }
 .header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .header-actions .play { margin-left: 10px; }
 

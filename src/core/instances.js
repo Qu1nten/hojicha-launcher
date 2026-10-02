@@ -79,6 +79,8 @@ function create({ name, gameVersion, loader, loaderVersion }) {
     created: Date.now(),
     sync: {},     // item name -> true when shared with other instances (see sync.js)
     content: {},  // "mods/foo.jar" -> Modrinth metadata for files installed from Modrinth
+    playtime: 0,      // milliseconds spent in the game, added when it closes
+    lastPlayed: null, // when the game last started (ms since epoch)
   };
   fs.mkdirSync(gameDir(instance.id), { recursive: true });
   return save(instance);
