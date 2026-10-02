@@ -175,6 +175,7 @@ function registerIpc() {
     await launch(instanceId, { join });
   });
 
+  handle('app:version', () => app.getVersion());
   handle('update:get', () => update);
   handle('update:install', () => {
     if (update.state !== 'ready') return;

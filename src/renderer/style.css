@@ -192,6 +192,7 @@ input:focus-visible, select:focus-visible { outline: none; }
   letter-spacing: 0.01em;
 }
 .brand img { image-rendering: pixelated; } /* pixel-art logo: keep every pixel sharp */
+.app-version { font-size: var(--text-xs); font-weight: 500; color: var(--steam-dim); letter-spacing: 0.02em; transform: translateY(1px); }
 
 .titlebar-main {
   flex: 1;

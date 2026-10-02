@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('launcher', {
   serverCommand: (id, text) => invoke('servers:command', id, text),
   joinServer: (id, instanceId) => invoke('servers:join', id, instanceId),
 
+  getVersion: () => invoke('app:version'),
   getUpdate: () => invoke('update:get'),
   installUpdate: () => invoke('update:install'),
   onUpdate: (callback) => ipcRenderer.on('update', (_event, data) => callback(data)),
