@@ -982,6 +982,7 @@ $('#srv-command-form').onsubmit = async (event) => {
   await refreshAccounts();
   await refreshInstances();
   await refreshServers();
+  $('#app-version').textContent = `v${await api.getVersion()}`;
   update = await api.getUpdate();
   renderUpdate();
 })();
