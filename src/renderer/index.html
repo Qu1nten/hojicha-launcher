@@ -174,7 +174,6 @@
               <span class="online-label">Address</span>
               <span class="online-value">
                 <code id="online-address"></code>
-                <span id="online-alt" class="online-alt"></span>
               </span>
               <button type="button" id="copy-address" class="quiet">Copy</button>
             </div>
@@ -194,18 +193,7 @@
                 </form>
               </span>
             </div>
-            <details class="online-domain">
-              <summary>Your own domain and playit.gg</summary>
-              <label class="field">Domain friends type in (optional)
-                <input id="public-domain" placeholder="mc.example.com" spellcheck="false" autocomplete="off">
-              </label>
-              <p id="srv-record-hint" class="hint"></p>
-              <div id="srv-record-row" class="srv-record" hidden>
-                <code id="srv-record"></code>
-                <button type="button" id="copy-srv" class="quiet">Copy</button>
-              </div>
-              <button type="button" id="playit-unlink" class="quiet danger">Disconnect playit.gg</button>
-            </details>
+            <button type="button" id="playit-unlink" class="quiet danger">Disconnect playit.gg</button>
           </div>
           <div id="online-error" class="error"></div>
         </section>
@@ -277,6 +265,18 @@
         <button type="submit" class="primary" id="server-create">Create server</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="close-dialog">
+    <div class="dialog-body">
+      <h2 id="close-title">Stop the server first?</h2>
+      <p id="close-text" class="hint"></p>
+      <div id="close-error" class="error"></div>
+      <div class="dialog-actions">
+        <button type="button" id="close-cancel" class="quiet">Keep running</button>
+        <button type="button" id="close-confirm" class="primary">Stop and close</button>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="versions-dialog">

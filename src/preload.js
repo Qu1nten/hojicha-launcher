@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld('launcher', {
   joinServer: (id, instanceId) => invoke('servers:join', id, instanceId),
 
   getVersion: () => invoke('app:version'),
+  stopServersAndClose: () => invoke('app:stopServersAndClose'),
+  onCloseRequested: (callback) => ipcRenderer.on('close-requested', (_event, names) => callback(names)),
   getUpdate: () => invoke('update:get'),
   installUpdate: () => invoke('update:install'),
   onUpdate: (callback) => ipcRenderer.on('update', (_event, data) => callback(data)),

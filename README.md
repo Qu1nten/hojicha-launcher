@@ -90,9 +90,6 @@ While a server is public it runs in **online mode with an enforced whitelist**, 
 accounts get in. Players keep a separate save per mode, because Minecraft stores player data by account ID: someone
 who played in offline mode starts from their online-mode save when the server is public.
 
-To give friends a short address of your own, enter a domain like `mc.example.com` and add the SRV record the tab
-shows at your DNS provider. Friends then type just `mc.example.com`.
-
 ## Install
 
 Download the installer from the [Releases](../../releases) page, or build it yourself (below). The installer is not
@@ -177,7 +174,7 @@ build/                    pixel-art logo (logo.png, 16x16), icons and installer 
 - Windows only for now.
 - No Forge, NeoForge or Quilt yet.
 - Synced `options.txt` is shared as-is, so syncing it between very different versions can mix up settings.
-- A custom domain points at one tunnel: the server on port 25565.
+- Online play uses playit.gg's own address for each server; your own domain isn't supported.
 
 ## Contact
 
