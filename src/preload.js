@@ -33,6 +33,17 @@ contextBridge.exposeInMainWorld('launcher', {
 
   listServers: () => invoke('servers:list'),
   addServer: () => invoke('servers:add'),
+  listServerVersions: (type) => invoke('servers:versions', type),
+  serverOnline: (id) => invoke('servers:online', id),
+  setServerPublic: (id, on) => invoke('servers:setPublic', id, on),
+  whitelistAdd: (id, name) => invoke('servers:whitelistAdd', id, name),
+  whitelistRemove: (id, name) => invoke('servers:whitelistRemove', id, name),
+  playitStatus: () => invoke('playit:status'),
+  playitLinkStart: () => invoke('playit:linkStart'),
+  playitLinkFinish: () => invoke('playit:linkFinish'),
+  playitLinkCancel: () => invoke('playit:linkCancel'),
+  playitUnlink: () => invoke('playit:unlink'),
+  createServer: (options) => invoke('servers:create', options),
   removeServer: (id) => invoke('servers:remove', id),
   openServerFolder: (id) => invoke('servers:openFolder', id),
   startServer: (id) => invoke('servers:start', id),
@@ -49,4 +60,5 @@ contextBridge.exposeInMainWorld('launcher', {
   onLog: (callback) => ipcRenderer.on('log', (_event, data) => callback(data)),
   onServerStatus: (callback) => ipcRenderer.on('server-status', (_event, data) => callback(data)),
   onServerLog: (callback) => ipcRenderer.on('server-log', (_event, data) => callback(data)),
+  onServerOnline: (callback) => ipcRenderer.on('server-online', (_event, data) => callback(data)),
 });

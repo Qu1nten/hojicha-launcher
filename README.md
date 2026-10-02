@@ -21,8 +21,9 @@
   loader. One click installs the newest compatible version plus its required dependencies.
 - **Instance syncing**: share resource packs, shader packs, screenshots, options/keybinds and the server
   list between instances.
-- **Local servers**: add an existing server folder (Paper, Purpur, vanilla...) and use **Start & Join** to
-  start it and jump straight in.
+- **Local servers**: create a Paper, Purpur or Fabric server in a couple of clicks, or add an existing server
+  folder, and use **Start & Join** to start it and jump straight in. Turn on **online play** to let friends join
+  over the internet through playit.gg, without port forwarding.
 - **Microsoft accounts**: sign in with the official Microsoft device-code flow.
 
 | Browse Modrinth | Local servers | Accounts |
@@ -43,10 +44,30 @@
 
 ## Local servers
 
+**New server** downloads the newest build of Paper, Purpur or Fabric for the Minecraft version you pick into
+`servers\<name>` in the launcher folder, once you agree to the Minecraft EULA. **Add folder**, in the same dialog,
+uses a server you already have, wherever it is.
+
 Hojicha starts a local server with the Java version that matches it, listening on `127.0.0.1` only, so nobody
-else can connect. Paper writes the launch settings into `server.properties`; Hojicha records your original
-values and puts them back when the server stops (or the next time it opens, if it was closed while the server
-ran), so your own start script keeps working. The selected account is made operator when the server starts.
+else can connect, in offline mode so offline accounts can join. It writes those settings into `server.properties`,
+records your original values and puts them back when the server stops (or the next time it opens, if it was closed
+while the server ran), so your own start script keeps working. The selected account is made operator when the
+server starts.
+
+### Online play
+
+The **Online play** tab lets friends join over the internet without port forwarding, through
+[playit.gg](https://playit.gg). **Set up online play** links a free playit.gg account once: you approve Hojicha
+Launcher in your browser and the launcher keeps the key, encrypted, in `config\playit.json`. With
+**Joinable online** on, starting the server also starts playit's own agent (the signed `playitd.exe`, pinned and
+checked by SHA-256, kept in `meta\playit`) as an ordinary program next to it: no service, no install, no admin
+rights. It stops with the server. The first start creates a Minecraft tunnel in your playit.gg account.
+
+While it's public the server runs in **online mode with an enforced whitelist**: only Microsoft accounts on the
+whitelist get in, so offline accounts can't join that server. Your selected account is always whitelisted.
+
+To give friends your own address, enter a domain like `mc.example.com` and add the SRV record the tab shows at
+your DNS provider. Friends then type just `mc.example.com`.
 
 ## Install
 
@@ -61,6 +82,7 @@ That folder holds the launcher and everything it stores:
 ```
 app\         the launcher itself
 instances\   one folder per instance (the game folder is instances\<name>\minecraft)
+servers\     servers made with New server
 synced\      resource packs, shader packs, screenshots and options shared between instances
 meta\        Minecraft versions, libraries, assets and Java, shared by all instances
 config\      settings, accounts and servers
@@ -69,8 +91,9 @@ uninstall.exe, and a Hojicha Launcher shortcut
 
 Instance folders are named after the instance, like `instances\Fabric 1.21.11`.
 
-If the folder isn't writable (an install for everyone in Program Files), they go to `%APPDATA%\Hojicha Launcher`
-instead. Data from 0.2.x and older (in `%APPDATA%\Hojicha Launcher\data`) is moved over on first start.
+Nothing is stored in AppData. The folder has to be writable, so an install for everyone in Program Files won't
+start; install it just for you, or in another folder. Data from 0.2.x and older (in
+`%APPDATA%\Hojicha Launcher\data`) is moved over on first start.
 
 To uninstall, run `uninstall.exe` in the launcher folder, or use **Settings → Apps**. After asking, it deletes the
 whole launcher folder, **including your instances and worlds**, so copy any worlds you want to keep first. Updating
@@ -82,7 +105,7 @@ Requires [Node.js](https://nodejs.org/) 22 or newer.
 
 ```
 npm install
-npm start          # run the launcher
+npm start          # run the launcher (uses the installed launcher's folder, or dev-home\ when not installed)
 npm run dist       # build dist/Hojicha Launcher Setup <version>.exe
 npm run icon       # regenerate build/icon.png, icon.ico and installerSidebar.bmp from the 16x16 build/logo.png
 ```

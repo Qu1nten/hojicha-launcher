@@ -86,4 +86,4 @@ function create({ name, gameVersion, loader, loaderVersion }) {
   return save(instance);
 }
 
-module.exports = { dir, gameDir, get, save, list, create, renameOldFolders };
+module.exports = { dir, gameDir, get, save, list, create, renameOldFolders, folderName };
