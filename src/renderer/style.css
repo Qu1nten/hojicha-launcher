@@ -57,15 +57,17 @@
   --steam-dim: #b09d8d;  /* secondary text */
   --ember: #f09a86;      /* errors */
 
-  /* Type scale (base 14px, ~1.25 ratio) */
-  --text-xs: 12px;
-  --text-s: 13px;
-  --text-m: 14px;
-  --text-l: 17px;
-  --text-xl: 26px;
+  /* Type scale (base 15px, ~1.25 ratio) */
+  --text-xs: 13px;
+  --text-s: 14px;
+  --text-m: 15px;
+  --text-l: 18px;
+  --text-xl: 28px;
 
   --font: "Zen Kaku Gothic New", "Segoe UI", system-ui, sans-serif;
   --mono: "Cascadia Mono", Consolas, monospace;
+
+  --sidebar-width: 264px;
   color-scheme: dark;
 }
 
@@ -76,6 +78,7 @@ html, body { height: 100%; }
 body {
   margin: 0;
   display: flex;
+  flex-direction: column;
   background: var(--roast);
   color: var(--steam);
   font: var(--text-m) / 1.5 var(--font);
@@ -153,28 +156,98 @@ input:focus-visible, select:focus-visible { outline: none; }
 .error { color: var(--ember); font-size: var(--text-s); min-height: 0; }
 .error:empty { display: none; }
 
-/* ---------- Sidebar ---------- */
+/* ---------- Title bar ---------- */
 
-#sidebar {
-  width: 248px;
+/* Replaces the Windows frame. The left part continues the sidebar upwards and the rest continues the main
+   area, so the bar reads as part of the window rather than a strip on top of it. Windows draws its own
+   min/max/close buttons on the right (titleBarOverlay in main.js); the titlebar-area env() values keep
+   our content clear of them. */
+.titlebar {
+  --titlebar-height: 44px;
+  height: var(--titlebar-height);
   flex-shrink: 0;
   display: flex;
-  flex-direction: column;
-  background: var(--kiln);
-  padding: 18px 12px 14px;
-  gap: 14px;
+  user-select: none;
+  -webkit-app-region: drag;
+  box-shadow: inset 0 -1px rgba(74, 53, 40, 0.6); /* hidden behind .brand, so the sidebar runs on unbroken */
 }
+.titlebar button { -webkit-app-region: no-drag; }
 
 .brand {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 8px;
+  padding: 0 20px;
+  background: var(--kiln);
   font-size: var(--text-l);
   font-weight: 700;
   letter-spacing: 0.01em;
 }
 .brand img { image-rendering: pixelated; } /* pixel-art logo: keep every pixel sharp */
+
+.titlebar-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 12px;
+  /* Room for the window buttons: everything right of the free title bar area. */
+  margin-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 150px)));
+}
+
+/* A newer version: downloads quietly, then asks for a restart. Outlined, so it never competes with Play. */
+.update-progress { font-size: var(--text-s); color: var(--steam-dim); white-space: nowrap; }
+.update-install {
+  padding: 3px 12px;
+  border-radius: 999px;
+  border-color: var(--liquor);
+  color: var(--liquor);
+  font-size: var(--text-s);
+  white-space: nowrap;
+}
+.update-install:hover:not(:disabled) { border-color: var(--liquor-bright); color: var(--liquor-bright); background: var(--kiln); }
+.update-progress[hidden], .update-install[hidden] { display: none; }
+
+/* What's running right now; click it to jump there. */
+.activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 3px 12px 3px 10px;
+  border-radius: 999px;
+  border-color: var(--clay);
+  font-size: var(--text-s);
+  font-weight: 500;
+  color: var(--steam-dim);
+  white-space: nowrap;
+}
+.activity:disabled { opacity: 1; }
+.activity #activity-text { overflow: hidden; text-overflow: ellipsis; }
+.activity-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: var(--clay); }
+.activity.running { color: var(--steam); }
+.activity.running .activity-dot { background: var(--leaf); }
+.activity.preparing { color: var(--steam); }
+.activity.preparing .activity-dot { background: var(--liquor); animation: steep 1.4s ease-in-out infinite; }
+@keyframes steep { 50% { opacity: 0.3; } }
+
+/* ---------- Sidebar ---------- */
+
+.app { flex: 1; min-height: 0; display: flex; }
+
+#sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--kiln);
+  padding: 10px 12px 14px;
+  gap: 14px;
+}
 
 .side-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
 .side-section h2 {
@@ -251,7 +324,7 @@ input:focus-visible, select:focus-visible { outline: none; }
 .memory-field input { width: 82px; padding: 5px 8px; text-align: right; }
 .memory .unit { font-size: var(--text-xs); }
 
-.disclaimer { padding: 0 8px; font-size: 11px; line-height: 1.4; color: var(--steam-dim); opacity: 0.75; }
+.disclaimer { padding: 0 8px; font-size: 12px; line-height: 1.4; color: var(--steam-dim); opacity: 0.75; }
 
 /* ---------- Main ---------- */
 
@@ -400,7 +473,7 @@ label.sync-row { display: contents; cursor: pointer; }
   background: var(--roast-deep);
   border-radius: 10px;
   color: var(--steam-dim);
-  font: 12px / 1.5 var(--mono);
+  font: 13px / 1.5 var(--mono);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -457,5 +530,5 @@ dialog::backdrop { background: rgba(14, 9, 6, 0.65); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition: none !important; }
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }

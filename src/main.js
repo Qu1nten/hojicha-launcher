@@ -11,6 +11,7 @@ const sync = require('./core/sync');
 const servers = require('./core/servers');
 const accounts = require('./core/accounts');
 const storage = require('./core/storage');
+const { autoUpdater } = require('electron-updater');
 
 const APP_ID = 'com.hojicha.launcher'; // must match build.appId so pinned taskbar icons group with the window
 const ICON = path.join(__dirname, '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
@@ -166,6 +167,13 @@ function registerIpc() {
     await launch(instanceId, { join });
   });
 
+  handle('update:get', () => update);
+  handle('update:install', () => {
+    if (update.state !== 'ready') return;
+    if (running.size) throw new Error('Close the game first');
+    autoUpdater.quitAndInstall(true, true); // silent installer, then start the new version
+  });
+
   handle('openExternal', (url) => {
     if (url.startsWith('https://modrinth.com/')) shell.openExternal(url);
   });
@@ -177,9 +185,13 @@ function createWindow() {
     height: 720,
     minWidth: 820,
     minHeight: 520,
-    backgroundColor: '#15171c',
+    backgroundColor: '#241913',
     title: 'Hojicha Launcher',
     icon: ICON,
+    // Our own title bar (see .titlebar in style.css). Windows still draws the minimise/maximise/close buttons
+    // over it, tinted to the palette, so Snap Layouts and the usual hover behaviour keep working.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#241913', symbolColor: '#b09d8d', height: 44 },
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   win.removeMenu();
@@ -189,6 +201,31 @@ function createWindow() {
 }
 
 if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
+
+// Updates come from the GitHub releases (build.publish in package.json). A newer version downloads in the
+// background; the title bar then offers a restart, and otherwise it installs when the launcher closes.
+// The installer runs in update mode, which replaces app\ only and keeps instances (build/installer.nsh).
+let update = { state: 'none' }; // none | downloading (version, progress 0-1) | ready (version)
+const setUpdate = (next) => {
+  update = next;
+  send('update', update);
+};
+
+function startUpdateChecks() {
+  if (!app.isPackaged) return; // running from source: nothing to update
+  autoUpdater.on('update-available', (info) => setUpdate({ state: 'downloading', version: info.version, progress: 0 }));
+  autoUpdater.on('download-progress', (p) => setUpdate({ ...update, progress: p.percent / 100 }));
+  autoUpdater.on('update-downloaded', (info) => setUpdate({ state: 'ready', version: info.version }));
+  // Offline or GitHub unreachable: try again at the next check, without bothering anyone.
+  autoUpdater.on('error', () => {
+    if (update.state === 'downloading') setUpdate({ state: 'none' });
+  });
+  const check = () => {
+    if (update.state === 'none') autoUpdater.checkForUpdates().catch(() => {});
+  };
+  check();
+  setInterval(check, 4 * 60 * 60 * 1000);
+}
 
 // Small window shown while data from an older version is moved into the home folder.
 function showMovingWindow() {
@@ -226,6 +263,7 @@ app.whenReady().then(async () => {
   registerIpc();
   createWindow();
   if (moving) moving.destroy();
+  startUpdateChecks();
 });
 
 app.on('window-all-closed', () => app.quit());
