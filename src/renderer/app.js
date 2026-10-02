@@ -175,6 +175,45 @@ function renderActivity() {
   pill.onclick = () => active[0]?.go();
 }
 
+// ---------- Closing with servers running ----------
+
+let stoppingToClose = false;
+
+api.onCloseRequested((names) => {
+  if (stoppingToClose) return; // already stopping; the window closes when that's done
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  const plural = names.length > 1;
+  $('#close-title').textContent = plural ? 'Stop the servers first?' : 'Stop the server first?';
+  $('#close-text').textContent = `${list} ${plural ? 'are' : 'is'} still running. Hojicha saves the world and stops `
+    + `${plural ? 'them' : 'it'} before closing, which can take up to a minute.`;
+  $('#close-error').textContent = '';
+  $('#close-confirm').disabled = false;
+  $('#close-confirm').textContent = plural ? 'Stop servers and close' : 'Stop server and close';
+  $('#close-cancel').disabled = false;
+  if (!$('#close-dialog').open) $('#close-dialog').showModal();
+});
+
+$('#close-cancel').onclick = () => $('#close-dialog').close();
+$('#close-confirm').onclick = async () => {
+  stoppingToClose = true;
+  $('#close-confirm').disabled = true;
+  $('#close-cancel').disabled = true;
+  $('#close-confirm').textContent = 'Saving and stopping…';
+  try {
+    await api.stopServersAndClose();
+  } catch (err) {
+    stoppingToClose = false;
+    $('#close-error').textContent = errorText(err);
+    $('#close-cancel').disabled = false;
+    $('#close-confirm').disabled = false;
+    $('#close-confirm').textContent = 'Try again';
+  }
+};
+// While servers are stopping, Escape mustn't hide the dialog: the window is about to close.
+$('#close-dialog').addEventListener('cancel', (event) => {
+  if (stoppingToClose) event.preventDefault();
+});
+
 // ---------- Updates ----------
 
 let update = { state: 'none' };
@@ -604,7 +643,7 @@ function renderServer() {
 
 // ---------- Online play ----------
 
-let playitState = { linked: false, domain: '' };
+let playitState = { linked: false };
 let linking = false;
 const serverOnline = {}; // server id -> { state: off | connecting | online | error, address, srv, text }
 
@@ -650,18 +689,16 @@ function renderOnline() {
   if (!isPublic) return;
 
   const address = $('#online-address');
-  const domain = playitState.domain;
   address.className = live.state === 'online' ? '' : 'waiting';
   $('#online-manual').hidden = live.state !== 'manual';
   if (live.state === 'manual') $('#manual-target').textContent = `127.0.0.1:${live.port}`;
   address.textContent = {
-    online: domain || live.address,
+    online: live.address,
     connecting: 'Connecting to playit.gg…',
     manual: 'Waiting for the tunnel on playit.gg…',
     error: 'Not connected',
     off: 'Appears when the server starts',
   }[live.state];
-  $('#online-alt').textContent = live.state === 'online' && domain ? `or ${live.address}` : '';
   $('#copy-address').hidden = live.state !== 'online';
 
   const you = account?.type === 'microsoft' ? account.name : null;
@@ -673,16 +710,6 @@ function renderOnline() {
       return el('li', {}, [name, remove]);
     }),
   );
-
-  if (document.activeElement !== $('#public-domain')) $('#public-domain').value = domain;
-  const record = domain && live.srv ? `_minecraft._tcp.${domain}  SRV  0 5 ${live.srv.port} ${live.srv.host}` : '';
-  $('#srv-record').textContent = record;
-  $('#srv-record-row').hidden = !record;
-  $('#srv-record-hint').textContent = !domain
-    ? 'Have a domain? Enter it to give friends a short address instead of playit\'s.'
-    : record
-      ? 'Add this SRV record at your domain\'s DNS provider. It can take a few minutes to work.'
-      : 'Start the server once to see the DNS record to add.';
 }
 
 // Applies a server change from the main process (whitelist, public switch) and redraws.
@@ -752,16 +779,6 @@ $('#whitelist-form').onsubmit = async (event) => {
   if (!$('#online-error').textContent) input.value = '';
 };
 $('#copy-address').onclick = (event) => copyText($('#online-address').textContent, event.target);
-$('#copy-srv').onclick = (event) => copyText($('#srv-record').textContent, event.target);
-$('#public-domain').onchange = async (event) => {
-  try {
-    const saved = await api.saveSettings({ publicDomain: event.target.value });
-    playitState.domain = saved.publicDomain;
-  } catch (err) {
-    $('#online-error').textContent = errorText(err);
-  }
-  renderOnline();
-};
 $('#playit-unlink').onclick = async () => {
   if (!confirm('Disconnect playit.gg? Online play stops working until you set it up again. Your tunnel stays in your playit.gg account.')) return;
   try {

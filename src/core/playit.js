@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const dns = require('dns').promises;
 const readline = require('readline');
 const { spawn } = require('child_process');
 const paths = require('./paths');
@@ -209,21 +208,7 @@ async function ensureTunnel(port, onManual = () => {}) {
   }
 }
 
-// What a custom domain's SRV record should point at. playit's Minecraft addresses carry their own SRV record,
-// so the real host and port come from DNS; an address with an explicit :port is used as it is.
-async function srvTarget(address) {
-  const explicit = address.match(/^(.+):(\d+)$/);
-  if (explicit) return { host: explicit[1], port: Number(explicit[2]) };
-  try {
-    const [record] = await dns.resolveSrv(`_minecraft._tcp.${address}`);
-    if (record) return { host: record.name, port: record.port };
-  } catch {
-    // No SRV record: the address is used on the default port.
-  }
-  return { host: address, port: 25565 };
-}
-
 module.exports = {
   setCipher, isLinked, startLink, finishLink, cancelLink, unlink,
-  startAgent, stopAgent, stopAll, ensureTunnel, srvTarget, CLAIM_PAGE, TUNNELS_PAGE,
+  startAgent, stopAgent, stopAll, ensureTunnel, CLAIM_PAGE, TUNNELS_PAGE,
 };

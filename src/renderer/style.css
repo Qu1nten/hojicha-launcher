@@ -244,7 +244,21 @@ input:focus-visible, select:focus-visible { outline: none; }
 
 /* ---------- Sidebar ---------- */
 
-.app { flex: 1; min-height: 0; display: flex; }
+.app { flex: 1; min-height: 0; display: flex; position: relative; }
+
+/* A faint grain over the window, like washi paper. Overlay on these dark colours adds texture without changing
+   them; keep it barely visible. The title bar stays flat to match the window buttons Windows paints there. */
+.app::after, dialog::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  border-radius: inherit;
+  background: url("textures/grain.png") 0 0 / 256px;
+  mix-blend-mode: overlay;
+  opacity: 0.06;
+}
 
 #sidebar {
   width: var(--sidebar-width);
@@ -335,7 +349,19 @@ input:focus-visible, select:focus-visible { outline: none; }
 
 /* ---------- Main ---------- */
 
-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* A faint, uneven warm light over the lower right of the main area, like warmth spreading through tea: three soft
+   patches of tea-liquor amber and roasted orange that overlap into one wash. All fade out before the title bar,
+   where Windows paints its window buttons in the plain background colour. */
+main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(70% 85% at 86% 78%, rgba(217, 148, 74, 0.09), transparent 72%),
+    radial-gradient(65% 55% at 48% 104%, rgba(176, 100, 56, 0.07), transparent 70%),
+    radial-gradient(38% 48% at 102% 40%, rgba(217, 148, 74, 0.06), transparent 72%);
+}
 
 .empty-state {
   margin: auto;
@@ -529,8 +555,6 @@ button.outline:hover:not(:disabled) { border-color: var(--liquor-bright); color:
 .online-value { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding-top: 3px; }
 .online-value code { font: 500 var(--text-m) var(--mono); color: var(--steam); overflow-wrap: anywhere; }
 .online-value code.waiting { font-family: var(--font); font-weight: 400; color: var(--steam-dim); }
-.online-alt { font-size: var(--text-xs); color: var(--steam-dim); }
-.online-alt:empty { display: none; }
 
 .online-manual { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 10px; background: var(--kiln); font-size: var(--text-s); color: var(--steam-dim); }
 .online-manual[hidden] { display: none; }
@@ -546,13 +570,6 @@ button.outline:hover:not(:disabled) { border-color: var(--liquor-bright); color:
 .whitelist-form input { flex: 1; min-width: 0; padding: 5px 10px; }
 .whitelist-form button { padding: 5px 12px; }
 
-.online-domain summary { cursor: pointer; color: var(--steam-dim); font-size: var(--text-s); width: fit-content; }
-.online-domain summary:hover { color: var(--steam); }
-.online-domain[open] { display: flex; flex-direction: column; gap: 10px; }
-.online-domain .field { max-width: 360px; margin-top: 8px; }
-.srv-record { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; background: var(--roast-deep); }
-.srv-record[hidden] { display: none; }
-.srv-record code { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--steam); overflow-wrap: anywhere; }
 #playit-unlink { align-self: flex-start; padding-left: 0; padding-right: 0; }
 
 /* ---------- Dialogs ---------- */

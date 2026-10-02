@@ -32,6 +32,17 @@ paths.setRoot(HOME);
 storage.carryOverEncryptionKey(HOME, app.getPath('appData'), paths.electron);
 app.setPath('userData', paths.electron);
 
+// One launcher at a time: two would start the same servers and games and write the same files. Opening it again
+// brings the running window to the front instead (the lock belongs to the userData folder set just above).
+const firstInstance = app.requestSingleInstanceLock();
+if (!firstInstance) app.quit();
+app.on('second-instance', () => {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+});
+
 let win = null;
 // Instance id -> child process (or null while it is still installing).
 const running = new Map();
@@ -70,9 +81,8 @@ async function goOnline(id) {
       send('server-log', { id, line: `[playit] Creating the tunnel failed: ${err.endpoint} answered ${err.reply}` });
       setOnline(id, { state: 'manual', port });
     });
-    const srv = await playit.srvTarget(address);
     if (!servers.isRunning(id)) return; // stopped while connecting; goOffline already cleaned up
-    setOnline(id, { state: 'online', address, srv });
+    setOnline(id, { state: 'online', address });
   } catch (err) {
     if (err.endpoint) send('server-log', { id, line: `[playit] ${err.endpoint} answered ${err.reply}` });
     if (!servers.isRunning(id)) return;
@@ -231,7 +241,7 @@ function registerIpc() {
   handle('servers:whitelistAdd', (id, name) => servers.addToWhitelist(id, name));
   handle('servers:whitelistRemove', (id, name) => servers.removeFromWhitelist(id, name));
 
-  handle('playit:status', () => ({ linked: playit.isLinked(), domain: settings.get().publicDomain }));
+  handle('playit:status', () => ({ linked: playit.isLinked() }));
   handle('playit:linkStart', async () => {
     const url = await playit.startLink();
     shell.openExternal(url);
@@ -245,6 +255,11 @@ function registerIpc() {
   });
 
   handle('app:version', () => app.getVersion());
+  handle('app:stopServersAndClose', async () => {
+    await servers.stopAll();
+    allowClose = true;
+    if (win && !win.isDestroyed()) win.close();
+  });
   handle('update:get', () => update);
   handle('update:install', () => {
     if (update.state !== 'ready') return;
@@ -262,6 +277,8 @@ function registerIpc() {
 const ZOOM = 1.1;
 const TITLEBAR_HEIGHT = Math.round(40 * ZOOM);
 
+let allowClose = false; // set once running servers have stopped after the player chose to close
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1200,
@@ -278,6 +295,16 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), zoomFactor: ZOOM },
   });
   win.removeMenu();
+  // Closing while a server runs keeps the window open and asks first (see the close dialog in the UI): the server
+  // has to save and stop, and the launcher shouldn't look closed while that happens.
+  win.on('close', (event) => {
+    const runningServers = servers.list().filter((s) => servers.isRunning(s.id));
+    if (allowClose || !runningServers.length) return;
+    event.preventDefault();
+    if (win.isMinimized()) win.restore();
+    win.focus();
+    send('close-requested', runningServers.map((s) => s.name));
+  });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -324,6 +351,7 @@ function showMovingWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (!firstInstance) return;
   const moves = storage.pendingMoves(HOME, app.getPath('appData'));
   let moving = null;
   if (moves.length) {
