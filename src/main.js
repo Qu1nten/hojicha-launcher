@@ -9,16 +9,25 @@ const minecraft = require('./core/minecraft');
 const modrinth = require('./core/modrinth');
 const sync = require('./core/sync');
 const servers = require('./core/servers');
+const serverTypes = require('./core/serverTypes');
+const playit = require('./core/playit');
 const accounts = require('./core/accounts');
 const storage = require('./core/storage');
 const { autoUpdater } = require('electron-updater');
 
+const EULA_URL = 'https://aka.ms/MinecraftEULA';
 const APP_ID = 'com.hojicha.launcher'; // must match build.appId so pinned taskbar icons group with the window
 const ICON = path.join(__dirname, '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
 
 // The launcher's home folder: next to the .exe when installed (see core/storage.js). Electron's own browser
 // data goes to config\electron inside it; that has to be set before the app is ready.
-const HOME = storage.chooseHome({ isPackaged: app.isPackaged, exePath: process.execPath, appData: app.getPath('appData') });
+let HOME;
+try {
+  HOME = storage.chooseHome({ isPackaged: app.isPackaged, exePath: process.execPath });
+} catch (err) {
+  dialog.showErrorBox('Hojicha Launcher', err.message);
+  process.exit(1);
+}
 paths.setRoot(HOME);
 storage.carryOverEncryptionKey(HOME, app.getPath('appData'), paths.electron);
 app.setPath('userData', paths.electron);
@@ -35,9 +44,47 @@ const status = (id, state, text = '', progress = null) => send('status', { id, s
 const log = (id, line) => send('log', { id, line });
 
 servers.setHooks({
-  status: (id, state, text = '') => send('server-status', { id, state, text }),
+  status: (id, state, text = '') => {
+    if (state === 'idle' || state === 'error') goOffline(id);
+    send('server-status', { id, state, text });
+  },
   log: (id, line) => send('server-log', { id, line }),
 });
+
+// Online play (see core/playit.js): while a public server runs, playit's agent relays players to it.
+// Server id -> { state: 'connecting' | 'online' | 'error', address, srv, text }; absent while not online.
+const online = new Map();
+const setOnline = (id, value) => {
+  if (value) online.set(id, value);
+  else online.delete(id);
+  send('server-online', { id, ...(value || { state: 'off' }) });
+};
+
+async function goOnline(id) {
+  if (!servers.get(id).public) return;
+  setOnline(id, { state: 'connecting', text: 'Connecting to playit.gg…' });
+  try {
+    await playit.startAgent(id, (line) => send('server-log', { id, line }));
+    const port = servers.port(id);
+    const address = await playit.ensureTunnel(port, (err) => {
+      send('server-log', { id, line: `[playit] Creating the tunnel failed: ${err.endpoint} answered ${err.reply}` });
+      setOnline(id, { state: 'manual', port });
+    });
+    const srv = await playit.srvTarget(address);
+    if (!servers.isRunning(id)) return; // stopped while connecting; goOffline already cleaned up
+    setOnline(id, { state: 'online', address, srv });
+  } catch (err) {
+    if (err.endpoint) send('server-log', { id, line: `[playit] ${err.endpoint} answered ${err.reply}` });
+    if (!servers.isRunning(id)) return;
+    playit.stopAgent(id);
+    setOnline(id, { state: 'error', text: err.message });
+  }
+}
+
+function goOffline(id) {
+  playit.stopAgent(id);
+  if (online.has(id)) setOnline(id, null);
+}
 
 function assertIdle(id) {
   if (running.has(id)) throw new Error('Close the game first');
@@ -154,12 +201,16 @@ function registerIpc() {
     if (result.canceled || !result.filePaths.length) return null;
     return servers.add(result.filePaths[0]);
   });
+  handle('servers:versions', (type) => serverTypes.listVersions(type));
+  handle('servers:create', (options) => servers.create(options));
   handle('servers:remove', (id) => servers.remove(id));
   handle('servers:openFolder', (id) => shell.openPath(servers.get(id).dir));
   // The selected account is made operator on the local server so FAWE/Arceon-style commands work.
   const serverOptions = () => ({ javaPath: settings.get().javaPath, opUsername: accounts.current()?.name });
   handle('servers:start', async (id) => {
-    await servers.start(id, serverOptions());
+    const ready = servers.start(id, serverOptions());
+    goOnline(id);
+    await ready;
   });
   handle('servers:stop', (id) => servers.stop(id));
   handle('servers:command', (id, text) => servers.command(id, text));
@@ -171,8 +222,26 @@ function registerIpc() {
     }
     assertIdle(instanceId);
     await accounts.launchIdentity(); // fail before starting the server if the account can't play
-    const join = await servers.start(id, serverOptions());
-    await launch(instanceId, { join });
+    const ready = servers.start(id, serverOptions());
+    goOnline(id);
+    await launch(instanceId, { join: await ready });
+  });
+  handle('servers:online', (id) => online.get(id) || { state: 'off' });
+  handle('servers:setPublic', (id, on) => servers.setPublic(id, on));
+  handle('servers:whitelistAdd', (id, name) => servers.addToWhitelist(id, name));
+  handle('servers:whitelistRemove', (id, name) => servers.removeFromWhitelist(id, name));
+
+  handle('playit:status', () => ({ linked: playit.isLinked(), domain: settings.get().publicDomain }));
+  handle('playit:linkStart', async () => {
+    const url = await playit.startLink();
+    shell.openExternal(url);
+    return url;
+  });
+  handle('playit:linkFinish', () => playit.finishLink());
+  handle('playit:linkCancel', () => playit.cancelLink());
+  handle('playit:unlink', () => {
+    if (online.size) throw new Error('Stop your online servers first');
+    playit.unlink();
   });
 
   handle('app:version', () => app.getVersion());
@@ -184,7 +253,7 @@ function registerIpc() {
   });
 
   handle('openExternal', (url) => {
-    if (url.startsWith('https://modrinth.com/')) shell.openExternal(url);
+    if (url.startsWith('https://modrinth.com/') || url === EULA_URL || url === playit.TUNNELS_PAGE) shell.openExternal(url);
   });
 }
 
@@ -268,10 +337,12 @@ app.whenReady().then(async () => {
   instances.renameOldFolders();
   sync.relinkAll();
   if (safeStorage.isEncryptionAvailable()) {
-    accounts.setCipher({
+    const cipher = {
       encrypt: (text) => safeStorage.encryptString(text).toString('base64'),
       decrypt: (text) => safeStorage.decryptString(Buffer.from(text, 'base64')),
-    });
+    };
+    accounts.setCipher(cipher);
+    playit.setCipher(cipher);
   }
   servers.restoreAllPending();
   registerIpc();
@@ -284,6 +355,9 @@ app.on('window-all-closed', () => app.quit());
 
 // Servers would keep running headless after the launcher closes, so save and stop them first.
 let quitting = false;
+// The relay must never outlive the launcher.
+app.on('will-quit', () => playit.stopAll());
+
 app.on('before-quit', (event) => {
   if (quitting || !servers.list().some((s) => servers.isRunning(s.id))) return;
   event.preventDefault();

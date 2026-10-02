@@ -4,16 +4,24 @@ const readline = require('readline');
 const { spawn } = require('child_process');
 const paths = require('./paths');
 const minecraft = require('./minecraft');
+const serverTypes = require('./serverTypes');
+const { folderName } = require('./instances');
 const { readJson, writeJson } = require('./util');
 
-// Local servers are existing server folders (Paper, Purpur, vanilla...) the launcher can start.
-// They are started with --online-mode false and --host 127.0.0.1: offline accounts can join and nobody else
-// can reach the server. The server writes those overrides into server.properties, so the launcher records
-// the original values first and puts them back when the server stops (or on next launch after a crash).
+// Local servers are server folders (Paper, Purpur, Fabric, vanilla...) the launcher can start: existing ones
+// that were added, or new ones created in the launcher's servers\ folder.
+// They listen on 127.0.0.1 only, in one of two modes:
+// - private (the default): offline mode, so offline accounts can join; nobody else can reach the server.
+// - public (online play, see playit.js): online mode with an enforced whitelist, because playit relays players
+//   from the internet to 127.0.0.1. Only whitelisted Microsoft accounts get in.
+// The launcher writes those settings into server.properties before starting (every server type reads that
+// file), records the original values first, and puts them back when the server stops (or on next launch
+// after a crash).
 
 const HOST = '127.0.0.1';
 const STOP_TIMEOUT_MS = 60000;
-const OVERRIDDEN_KEYS = ['online-mode', 'server-ip'];
+const OVERRIDDEN_KEYS = ['online-mode', 'server-ip', 'white-list', 'enforce-whitelist'];
+const PLAYER_NAME = /^[A-Za-z0-9_]{3,16}$/;
 
 const file = () => paths.serversFile;
 const restoreFile = () => paths.serverRestoreFile;
@@ -68,6 +76,24 @@ function add(dir) {
   return server;
 }
 
+// A new server in servers\<name>: downloads the server jar and, when the player agreed to the EULA, writes eula.txt.
+async function create({ name, type, version, eula }) {
+  if (!eula) throw new Error('Agree to the Minecraft EULA to create a server');
+  const base = folderName(name.trim() || `${serverTypes.label(type)} ${version}`);
+  let dir = path.join(paths.servers, base);
+  for (let n = 2; fs.existsSync(dir); n++) dir = path.join(paths.servers, `${base} (${n})`);
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    await serverTypes.download(type, version, dir);
+    const agreed = `# Agreed in Hojicha Launcher on ${new Date().toISOString()}\n# https://aka.ms/MinecraftEULA\n`;
+    fs.writeFileSync(path.join(dir, 'eula.txt'), `${agreed}eula=true\n`);
+    return add(dir);
+  } catch (err) {
+    fs.rmSync(dir, { recursive: true, force: true }); // nothing worth keeping in a half-made server
+    throw err;
+  }
+}
+
 function remove(id) {
   if (processes.has(id)) throw new Error('Stop the server first');
   saveAll(list().filter((s) => s.id !== id));
@@ -110,10 +136,11 @@ function readProperties(dir, keys) {
   return values;
 }
 
-function writeProperties(dir, values) {
+// create: write the file when it doesn't exist yet (a server that has never started), instead of skipping it.
+function writeProperties(dir, values, { create = false } = {}) {
   const propsFile = path.join(dir, 'server.properties');
-  if (!fs.existsSync(propsFile)) return;
-  let text = fs.readFileSync(propsFile, 'utf8');
+  if (!fs.existsSync(propsFile) && !create) return;
+  let text = fs.existsSync(propsFile) ? fs.readFileSync(propsFile, 'utf8') : '';
   for (const [key, value] of Object.entries(values)) {
     const pattern = new RegExp(`^${key}=.*(\r?\n)?`, 'm');
     if (value === null) text = text.replace(pattern, '');
@@ -165,6 +192,23 @@ function eulaAccepted(dir) {
   }
 }
 
+// Players seen while the server ran in offline mode get offline UUIDs (version 3, derived from the name), which
+// never match a real Microsoft account. The server keeps them in its player cache and reuses them for
+// "whitelist add" and "op", so drop them from all three files before an online start; the whitelist add and op
+// commands then look up the real UUIDs.
+function dropOfflineEntries(dir) {
+  for (const name of ['usercache.json', 'whitelist.json', 'ops.json']) {
+    const file = path.join(dir, name);
+    try {
+      const entries = readJson(file);
+      const online = entries.filter((e) => e.uuid?.[14] !== '3');
+      if (online.length !== entries.length) writeJson(file, online);
+    } catch {
+      // File not there yet.
+    }
+  }
+}
+
 function isRunning(id) {
   return processes.has(id);
 }
@@ -191,8 +235,14 @@ function start(id, { javaPath, opUsername } = {}) {
     entry.port = readPort(server.dir);
 
     rememberOriginals(server.dir);
-    const args = [`-Xmx${server.memoryMb}M`, '-jar', server.jar, '--nogui', '--online-mode', 'false', '--host', HOST];
-    hooks.log(id, `> Starting ${server.name} (${server.mcVersion}) on ${HOST}:${entry.port}, offline logins allowed`);
+    if (server.public) dropOfflineEntries(server.dir);
+    const args = [`-Xmx${server.memoryMb}M`, '-jar', server.jar, '--nogui'];
+    writeProperties(server.dir, server.public
+      ? { 'online-mode': 'true', 'server-ip': HOST, 'white-list': 'true', 'enforce-whitelist': 'true' }
+      : { 'online-mode': 'false', 'server-ip': HOST }, { create: true });
+    hooks.log(id, server.public
+      ? `> Starting ${server.name} (${server.mcVersion}) for online play: whitelisted Microsoft accounts only`
+      : `> Starting ${server.name} (${server.mcVersion}) on ${HOST}:${entry.port}, offline logins allowed`);
     const child = spawn(java, args, { cwd: server.dir, windowsHide: true });
     entry.child = child;
     hooks.status(id, 'starting', 'Starting server…');
@@ -203,6 +253,9 @@ function start(id, { javaPath, opUsername } = {}) {
         hooks.log(id, line);
         if (!ready && /\bDone \(\d/.test(line)) {
           ready = true;
+          if (server.public) {
+            for (const name of new Set([opUsername, ...(server.whitelist || [])].filter(Boolean))) child.stdin.write(`whitelist add ${name}\n`);
+          }
           if (opUsername) child.stdin.write(`op ${opUsername}\n`);
           hooks.status(id, 'running', `Running on ${HOST}:${entry.port}`);
           resolve(`${HOST}:${entry.port}`);
@@ -240,6 +293,39 @@ function start(id, { javaPath, opUsername } = {}) {
   return entry.ready;
 }
 
+// ---------- Online play settings ----------
+
+function update(id, change) {
+  const servers = list();
+  const server = servers.find((s) => s.id === id);
+  if (!server) throw new Error('Server not found');
+  change(server);
+  saveAll(servers);
+  return server;
+}
+
+// Takes effect the next time the server starts (it changes server.properties and how the server is reached).
+function setPublic(id, on) {
+  if (processes.has(id)) throw new Error('Stop the server first');
+  return update(id, (server) => { server.public = Boolean(on); });
+}
+
+function addToWhitelist(id, name) {
+  name = name.trim();
+  if (!PLAYER_NAME.test(name)) throw new Error(`"${name}" isn't a Minecraft name (3 to 16 letters, numbers or _)`);
+  const server = update(id, (s) => {
+    s.whitelist = [...new Set([...(s.whitelist || []), name])].sort((a, b) => a.localeCompare(b));
+  });
+  if (server.public && processes.get(id)?.child) command(id, `whitelist add ${name}`);
+  return server;
+}
+
+function removeFromWhitelist(id, name) {
+  const server = update(id, (s) => { s.whitelist = (s.whitelist || []).filter((n) => n !== name); });
+  if (server.public && processes.get(id)?.child) command(id, `whitelist remove ${name}`);
+  return server;
+}
+
 function command(id, text) {
   const proc = processes.get(id);
   if (!proc?.child) throw new Error('Server is not running');
@@ -266,4 +352,8 @@ function stopAll() {
   return Promise.all([...processes.keys()].map(stop));
 }
 
-module.exports = { setHooks, list, get, add, remove, start, stop, stopAll, command, isRunning, address, restoreAllPending };
+module.exports = {
+  setHooks, list, get, add, create, remove, setPublic, addToWhitelist, removeFromWhitelist,
+  start, stop, stopAll, command, isRunning, address, restoreAllPending,
+  port: (id) => readPort(get(id).dir),
+};

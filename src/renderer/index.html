@@ -35,7 +35,7 @@
       <section class="side-section" aria-labelledby="servers-heading">
         <h2 id="servers-heading">Servers</h2>
         <ul id="server-list" class="side-list"></ul>
-        <button id="add-server" class="side-add">Add server folder</button>
+        <button id="new-server" class="side-add">New server</button>
       </section>
     </div>
 
@@ -138,16 +138,78 @@
         <select id="srv-instance"></select>
         <button id="srv-join" class="play">Start and join</button>
       </div>
-      <p class="intro">The server only accepts players on this PC. Your server.properties settings are put back when it stops,
-        so your own start script keeps working. The selected account is made operator.</p>
+      <p id="srv-intro" class="intro"></p>
 
-      <div class="console-wrap">
-        <pre id="srv-log" class="console"></pre>
+
+      <nav class="tabs" aria-label="Server sections">
+        <button data-srv-tab="console" class="active">Console</button>
+        <button data-srv-tab="online">Online play <span id="online-dot" class="running-dot" hidden></span></button>
+      </nav>
+
+      <div class="tab tab-console" id="srv-tab-console">
+        <div class="console-wrap">
+          <pre id="srv-log" class="console"></pre>
+        </div>
+        <form id="srv-command-form" class="command">
+          <input id="srv-command" placeholder="Type a server command, like say hello" spellcheck="false" autocomplete="off" aria-label="Server command">
+          <button type="submit">Send</button>
+        </form>
       </div>
-      <form id="srv-command-form" class="command">
-        <input id="srv-command" placeholder="Type a server command, like say hello" spellcheck="false" autocomplete="off" aria-label="Server command">
-        <button type="submit">Send</button>
-      </form>
+
+      <div class="tab" id="srv-tab-online" hidden>
+        <section class="online" aria-label="Online play">
+          <div class="online-head">
+            <div class="online-title">
+              <p id="online-hint" class="hint"></p>
+            </div>
+            <button type="button" id="playit-link" class="outline">Set up online play</button>
+            <button type="button" id="playit-cancel" class="quiet" hidden>Cancel</button>
+            <label id="public-toggle" class="online-toggle" hidden>
+              <span>Joinable online</span>
+              <input type="checkbox" id="srv-public" class="switch">
+            </label>
+          </div>
+          <div id="online-body" class="online-body" hidden>
+            <div class="online-row">
+              <span class="online-label">Address</span>
+              <span class="online-value">
+                <code id="online-address"></code>
+                <span id="online-alt" class="online-alt"></span>
+              </span>
+              <button type="button" id="copy-address" class="quiet">Copy</button>
+            </div>
+            <div id="online-manual" class="online-manual" hidden>
+              <p>playit.gg didn't let the launcher add the tunnel itself. Add it on the website: <strong>Add tunnel</strong>,
+                type <strong>Minecraft Java</strong>, local address <code id="manual-target">127.0.0.1:25565</code>.
+                The address shows up here as soon as it's there.</p>
+              <button type="button" id="open-tunnels" class="outline">Open playit.gg tunnels</button>
+            </div>
+            <div class="online-row">
+              <span class="online-label">Whitelist</span>
+              <span class="online-value">
+                <ul id="whitelist" class="chips"></ul>
+                <form id="whitelist-form" class="whitelist-form">
+                  <input id="whitelist-name" placeholder="Friend's Minecraft name" maxlength="16" spellcheck="false" autocomplete="off" aria-label="Friend's Minecraft name">
+                  <button type="submit">Add</button>
+                </form>
+              </span>
+            </div>
+            <details class="online-domain">
+              <summary>Your own domain and playit.gg</summary>
+              <label class="field">Domain friends type in (optional)
+                <input id="public-domain" placeholder="mc.example.com" spellcheck="false" autocomplete="off">
+              </label>
+              <p id="srv-record-hint" class="hint"></p>
+              <div id="srv-record-row" class="srv-record" hidden>
+                <code id="srv-record"></code>
+                <button type="button" id="copy-srv" class="quiet">Copy</button>
+              </div>
+              <button type="button" id="playit-unlink" class="quiet danger">Disconnect playit.gg</button>
+            </details>
+          </div>
+          <div id="online-error" class="error"></div>
+        </section>
+      </div>
     </section>
   </main>
   </div>
@@ -172,6 +234,47 @@
       <div class="dialog-actions">
         <button type="button" id="new-cancel" class="quiet">Cancel</button>
         <button type="submit" class="primary" id="new-create">Create instance</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="server-dialog">
+    <form id="server-form" method="dialog" class="dialog-body">
+      <h2>New server</h2>
+      <label class="field">Name
+        <input id="server-name" placeholder="My server" spellcheck="false">
+      </label>
+      <fieldset class="field type-picker">
+        <legend>Server software</legend>
+        <label class="type-option">
+          <input type="radio" name="server-type" value="paper" checked>
+          <span class="type-name">Paper</span>
+          <span class="type-desc">Fast, runs plugins</span>
+        </label>
+        <label class="type-option">
+          <input type="radio" name="server-type" value="purpur">
+          <span class="type-name">Purpur</span>
+          <span class="type-desc">Paper with extra options</span>
+        </label>
+        <label class="type-option">
+          <input type="radio" name="server-type" value="fabric">
+          <span class="type-name">Fabric</span>
+          <span class="type-desc">Runs Fabric mods</span>
+        </label>
+      </fieldset>
+      <label class="field">Minecraft version
+        <select id="server-version"></select>
+      </label>
+      <label class="check"><input id="server-eula" type="checkbox"> I agree to the <a href="#" id="eula-link">Minecraft EULA</a></label>
+      <p class="hint">The server goes in the launcher's servers folder. Only this PC can join until you turn on online play.</p>
+      <div class="existing-folder">
+        <span>Already have a server folder?</span>
+        <button type="button" id="add-server" class="outline">Add folder</button>
+      </div>
+      <div id="server-error" class="error"></div>
+      <div class="dialog-actions">
+        <button type="button" id="server-cancel" class="quiet">Cancel</button>
+        <button type="submit" class="primary" id="server-create">Create server</button>
       </div>
     </form>
   </dialog>

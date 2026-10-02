@@ -299,10 +299,10 @@ function renderStatus() {
 
 function showTab(tab) {
   state.tab = tab;
-  for (const button of document.querySelectorAll('.tabs button')) {
+  for (const button of document.querySelectorAll('#instance-view .tabs button')) {
     button.classList.toggle('active', button.dataset.tab === tab);
   }
-  for (const panel of document.querySelectorAll('.tab')) {
+  for (const panel of document.querySelectorAll('#instance-view .tab')) {
     panel.hidden = panel.id !== `tab-${tab}`;
   }
   if (tab === 'mods') loadMods();
@@ -598,8 +598,195 @@ function renderServer() {
   join.textContent = s.state === 'running' ? 'Join' : 'Start and join';
   join.disabled = !matching.length || s.state === 'stopping' || isBusy(select.value);
 
+  renderOnline();
   renderServerLog(false);
 }
+
+// ---------- Online play ----------
+
+let playitState = { linked: false, domain: '' };
+let linking = false;
+const serverOnline = {}; // server id -> { state: off | connecting | online | error, address, srv, text }
+
+function selectedAccount() {
+  return accountState.accounts.find((a) => a.id === accountState.selected) || null;
+}
+
+function renderOnline() {
+  const server = currentServer();
+  if (!server) return;
+  const running = serverState(server.id) !== 'idle' && serverState(server.id) !== 'error';
+  const live = serverOnline[server.id] || { state: 'off' };
+  const isPublic = playitState.linked && server.public;
+
+  $('#srv-intro').textContent = isPublic
+    ? 'Online play is on: friends on the whitelist can join with Microsoft accounts. Your server.properties settings are put back when it stops. The selected account is made operator.'
+    : 'The server only accepts players on this PC. Your server.properties settings are put back when it stops, so your own start script keeps working. The selected account is made operator.';
+
+  $('#playit-link').hidden = playitState.linked;
+  $('#playit-link').disabled = linking;
+  $('#playit-link').textContent = linking ? 'Waiting for you in the browser…' : 'Set up online play';
+  $('#playit-cancel').hidden = !linking;
+  $('#public-toggle').hidden = !playitState.linked;
+  const switching = ['starting', 'stopping'].includes(serverState(server.id));
+  $('#srv-public').checked = Boolean(server.public);
+  $('#srv-public').disabled = switching;
+  $('#public-toggle').title = running ? 'Changing this restarts the server' : '';
+
+  const account = selectedAccount();
+  let hint;
+  if (!playitState.linked) hint = linking
+    ? 'Sign in on playit.gg (a free account is fine) and approve Hojicha Launcher. This only happens once.'
+    : 'Let friends join over the internet through playit.gg, without port forwarding.';
+  else if (!server.public) hint = 'Off: only this PC can join.';
+  else if (account?.type === 'offline') hint = 'Your selected account is offline. Switch to a Microsoft account to join while online play is on.';
+  else hint = running ? '' : 'Starts with the server. Players need Microsoft accounts and a spot on the whitelist.';
+  $('#online-hint').textContent = hint;
+  $('#online-hint').hidden = !hint;
+
+  $('#online-dot').hidden = live.state !== 'online';
+  $('#online-body').hidden = !isPublic;
+  $('#online-error').textContent = live.state === 'error' ? live.text : '';
+  if (!isPublic) return;
+
+  const address = $('#online-address');
+  const domain = playitState.domain;
+  address.className = live.state === 'online' ? '' : 'waiting';
+  $('#online-manual').hidden = live.state !== 'manual';
+  if (live.state === 'manual') $('#manual-target').textContent = `127.0.0.1:${live.port}`;
+  address.textContent = {
+    online: domain || live.address,
+    connecting: 'Connecting to playit.gg…',
+    manual: 'Waiting for the tunnel on playit.gg…',
+    error: 'Not connected',
+    off: 'Appears when the server starts',
+  }[live.state];
+  $('#online-alt').textContent = live.state === 'online' && domain ? `or ${live.address}` : '';
+  $('#copy-address').hidden = live.state !== 'online';
+
+  const you = account?.type === 'microsoft' ? account.name : null;
+  $('#whitelist').replaceChildren(
+    ...(you ? [el('li', { className: 'you', textContent: `${you} (you)`, title: 'Your selected account is always allowed' })] : []),
+    ...(server.whitelist || []).filter((name) => name !== you).map((name) => {
+      const remove = el('button', { type: 'button', textContent: '×', title: `Remove ${name}`, ariaLabel: `Remove ${name}` });
+      remove.onclick = () => updateServer(api.whitelistRemove(server.id, name));
+      return el('li', {}, [name, remove]);
+    }),
+  );
+
+  if (document.activeElement !== $('#public-domain')) $('#public-domain').value = domain;
+  const record = domain && live.srv ? `_minecraft._tcp.${domain}  SRV  0 5 ${live.srv.port} ${live.srv.host}` : '';
+  $('#srv-record').textContent = record;
+  $('#srv-record-row').hidden = !record;
+  $('#srv-record-hint').textContent = !domain
+    ? 'Have a domain? Enter it to give friends a short address instead of playit\'s.'
+    : record
+      ? 'Add this SRV record at your domain\'s DNS provider. It can take a few minutes to work.'
+      : 'Start the server once to see the DNS record to add.';
+}
+
+// Applies a server change from the main process (whitelist, public switch) and redraws.
+async function updateServer(request) {
+  $('#online-error').textContent = '';
+  try {
+    const updated = await request;
+    state.servers = state.servers.map((s) => (s.id === updated.id ? updated : s));
+    renderOnline();
+  } catch (err) {
+    $('#online-error').textContent = errorText(err);
+  }
+}
+
+async function linkPlayit() {
+  linking = true;
+  renderOnline();
+  try {
+    await api.playitLinkStart();
+    await api.playitLinkFinish();
+    playitState = await api.playitStatus();
+  } catch (err) {
+    if (errorText(err) !== 'Cancelled') $('#online-error').textContent = errorText(err);
+  } finally {
+    linking = false;
+    renderOnline();
+  }
+}
+
+function copyText(text, button) {
+  navigator.clipboard.writeText(text);
+  const label = button.textContent;
+  button.textContent = 'Copied';
+  setTimeout(() => { button.textContent = label; }, 1200);
+}
+
+$('#playit-link').onclick = linkPlayit;
+$('#open-tunnels').onclick = () => api.openExternal('https://playit.gg/account/tunnels');
+$('#playit-cancel').onclick = () => api.playitLinkCancel();
+// The mode is set when the server starts, so switching it on a running server restarts the server.
+$('#srv-public').onchange = async (event) => {
+  const server = currentServer();
+  const on = event.target.checked;
+  if (serverState(server.id) !== 'running') {
+    await updateServer(api.setServerPublic(server.id, on));
+    return;
+  }
+  const what = on ? 'on' : 'off';
+  if (!confirm(`Restart ${server.name} to turn online play ${what}? Anyone playing on it is disconnected.`)) {
+    event.target.checked = !on;
+    return;
+  }
+  try {
+    await api.stopServer(server.id);
+    await updateServer(api.setServerPublic(server.id, on));
+    state.serverLogs[server.id] = [];
+    await api.startServer(server.id);
+  } catch (err) {
+    showServerError(server.id, err);
+  }
+};
+$('#whitelist-form').onsubmit = async (event) => {
+  event.preventDefault();
+  const input = $('#whitelist-name');
+  if (!input.value.trim()) return;
+  await updateServer(api.whitelistAdd(state.selectedServer, input.value));
+  if (!$('#online-error').textContent) input.value = '';
+};
+$('#copy-address').onclick = (event) => copyText($('#online-address').textContent, event.target);
+$('#copy-srv').onclick = (event) => copyText($('#srv-record').textContent, event.target);
+$('#public-domain').onchange = async (event) => {
+  try {
+    const saved = await api.saveSettings({ publicDomain: event.target.value });
+    playitState.domain = saved.publicDomain;
+  } catch (err) {
+    $('#online-error').textContent = errorText(err);
+  }
+  renderOnline();
+};
+$('#playit-unlink').onclick = async () => {
+  if (!confirm('Disconnect playit.gg? Online play stops working until you set it up again. Your tunnel stays in your playit.gg account.')) return;
+  try {
+    await api.playitUnlink();
+    playitState = await api.playitStatus();
+  } catch (err) {
+    $('#online-error').textContent = errorText(err);
+  }
+  renderOnline();
+};
+
+// Console | Online play tabs on the server page.
+function showServerTab(tab) {
+  state.serverTab = tab;
+  for (const button of document.querySelectorAll('[data-srv-tab]')) button.classList.toggle('active', button.dataset.srvTab === tab);
+  $('#srv-tab-console').hidden = tab !== 'console';
+  $('#srv-tab-online').hidden = tab !== 'online';
+  if (tab === 'console') renderServerLog(true);
+}
+for (const button of document.querySelectorAll('[data-srv-tab]')) button.onclick = () => showServerTab(button.dataset.srvTab);
+
+api.onServerOnline(({ id, ...live }) => {
+  serverOnline[id] = live;
+  if (state.view === 'server' && id === state.selectedServer) renderOnline();
+});
 
 function renderServerLog(forceBottom) {
   const logEl = $('#srv-log');
@@ -835,7 +1022,7 @@ api.onLog(({ id, line }) => {
   }
 });
 
-for (const button of document.querySelectorAll('.tabs button')) {
+for (const button of document.querySelectorAll('#instance-view .tabs button')) {
   button.onclick = () => showTab(button.dataset.tab);
 }
 
@@ -914,12 +1101,87 @@ $('#offline-form').onsubmit = async (event) => {
   }
 };
 
+// ---------- New server ----------
+
+const serverVersions = {}; // type -> versions, newest first
+const serverType = () => document.querySelector('input[name="server-type"]:checked').value;
+
+// Lists the chosen software's versions, keeping the picked version when it's still there; otherwise the selected
+// instance's version (so Start and join works straight away), otherwise the newest.
+async function fillServerVersions() {
+  const select = $('#server-version');
+  const type = serverType();
+  const keep = select.value || current()?.gameVersion;
+  $('#server-error').textContent = '';
+  select.disabled = true;
+  try {
+    serverVersions[type] ??= await api.listServerVersions(type);
+  } catch (err) {
+    $('#server-error').textContent = `Couldn't load the version list. Check your internet connection. (${errorText(err)})`;
+    return;
+  } finally {
+    select.disabled = false;
+  }
+  if (type !== serverType()) return; // switched again while loading
+  const versions = serverVersions[type];
+  select.replaceChildren(...versions.map((v) => el('option', { value: v, textContent: v })));
+  select.value = versions.includes(keep) ? keep : versions[0];
+}
+
+function openServerDialog() {
+  $('#server-name').value = '';
+  $('#server-eula').checked = false;
+  $('#server-error').textContent = '';
+  $('#server-create').disabled = false;
+  $('#server-create').textContent = 'Create server';
+  $('#server-version').value = '';
+  $('#server-dialog').showModal();
+  fillServerVersions();
+}
+
+async function createServer(event) {
+  event.preventDefault();
+  const version = $('#server-version').value;
+  if (!version) return;
+  if (!$('#server-eula').checked) {
+    $('#server-error').textContent = 'A Minecraft server can only run once you agree to the EULA.';
+    return;
+  }
+  const create = $('#server-create');
+  create.disabled = true;
+  create.textContent = 'Downloading…';
+  $('#server-error').textContent = '';
+  try {
+    const server = await api.createServer({ name: $('#server-name').value, type: serverType(), version, eula: true });
+    $('#server-dialog').close();
+    await refreshServers(server.id);
+  } catch (err) {
+    $('#server-error').textContent = errorText(err);
+    create.disabled = false;
+    create.textContent = 'Create server';
+  }
+}
+
+$('#new-server').onclick = openServerDialog;
+$('#server-cancel').onclick = () => $('#server-dialog').close();
+$('#server-form').onsubmit = createServer;
+$('#server-eula').onchange = () => { $('#server-error').textContent = ''; };
+$('#eula-link').onclick = (event) => {
+  event.preventDefault();
+  api.openExternal('https://aka.ms/MinecraftEULA');
+};
+for (const radio of document.querySelectorAll('input[name="server-type"]')) radio.onchange = fillServerVersions;
+
+// From the New server dialog: use a server folder that already exists instead of making one.
 $('#add-server').onclick = async () => {
+  $('#server-error').textContent = '';
   try {
     const server = await api.addServer();
-    if (server) await refreshServers(server.id);
+    if (!server) return; // folder picker cancelled
+    $('#server-dialog').close();
+    await refreshServers(server.id);
   } catch (err) {
-    alert(errorText(err));
+    $('#server-error').textContent = errorText(err);
   }
 };
 
@@ -983,6 +1245,9 @@ $('#srv-command-form').onsubmit = async (event) => {
   await refreshInstances();
   await refreshServers();
   $('#app-version').textContent = `v${await api.getVersion()}`;
+  playitState = await api.playitStatus();
+  for (const server of state.servers) serverOnline[server.id] = await api.serverOnline(server.id);
+  if (state.view === 'server') renderMain();
   update = await api.getUpdate();
   renderUpdate();
 })();
