@@ -53,6 +53,39 @@ function loaderLabel(inst) {
   return `${inst.loader === 'fabric' ? 'Fabric' : 'Vanilla'} ${inst.gameVersion}`;
 }
 
+// Small line icons (see .icon in style.css). Static markup only, so innerHTML is safe here.
+const ICONS = {
+  block: '<path d="M8 1.8l5.5 3.1v6.2L8 14.2l-5.5-3.1V4.9z"/><path d="M2.5 4.9L8 8l5.5-3.1M8 8v6.2"/>',
+  hourglass: '<path d="M4 2h8M4 14h8"/><path d="M5 2c0 3.4 6 3.2 6 6s-6 2.6-6 6M11 2c0 3.4-6 3.2-6 6s6 2.6 6 6"/>',
+  clock: '<circle cx="8" cy="8" r="6.2"/><path d="M8 4.6V8l2.3 1.6"/>',
+};
+
+function icon(name) {
+  const span = el('span');
+  span.innerHTML = `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true">${ICONS[name]}</svg>`;
+  return span.firstChild;
+}
+
+function formatPlaytime(ms) {
+  const minutes = Math.floor((ms || 0) / 60000);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  const hours = Math.round(minutes / 6) / 10; // one decimal below 10 hours
+  const shown = hours < 10 ? hours : Math.round(hours);
+  return `${shown} hour${shown === 1 ? '' : 's'}`;
+}
+
+const relativeFormat = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+function formatLastPlayed(time) {
+  if (!time) return 'Never played';
+  const seconds = (time - Date.now()) / 1000;
+  for (const [unit, size] of [['year', 31536000], ['month', 2592000], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60]]) {
+    if (Math.abs(seconds) < size) continue;
+    const text = relativeFormat.format(Math.round(seconds / size), unit); // "12 hours ago", "yesterday"
+    return text[0].toUpperCase() + text.slice(1);
+  }
+  return 'Just now';
+}
+
 function thumb(url) {
   return url ? el('img', { className: 'thumb', src: url, alt: '' }) : el('div', { className: 'thumb' });
 }
@@ -197,11 +230,25 @@ function renderInstance() {
   if (!inst) return;
 
   $('#inst-name').textContent = inst.name;
-  $('#inst-meta').textContent = inst.loader === 'fabric'
-    ? `Fabric ${inst.loaderVersion} for ${inst.gameVersion}`
-    : `Vanilla ${inst.gameVersion}`;
+  renderMeta();
   renderStatus();
   showTab(state.tab);
+}
+
+function renderMeta() {
+  const inst = current();
+  if (!inst) return;
+  const playing = state.status[inst.id]?.state === 'running';
+  const item = (glyph, text, title) => el('span', { className: 'meta-item', title: title || '' }, [glyph, text]);
+  const version = inst.loader === 'fabric'
+    ? item(el('img', { className: 'pixel-icon', src: 'icons/fabric.png', alt: '' }), loaderLabel(inst), `Fabric loader ${inst.loaderVersion}`)
+    : item(icon('block'), loaderLabel(inst));
+  $('#inst-meta').replaceChildren(...[
+    version,
+    inst.playtime >= 60000 ? item(icon('hourglass'), formatPlaytime(inst.playtime), 'Time played') : null,
+    item(icon('clock'), playing ? 'Playing now' : formatLastPlayed(inst.lastPlayed),
+      inst.lastPlayed ? `Last played ${new Date(inst.lastPlayed).toLocaleString()}` : ''),
+  ].filter(Boolean));
 }
 
 // Leaf green -> tea liquor -> roasted brown as the launch progresses.
@@ -243,7 +290,7 @@ function renderStatus() {
 
   const play = $('#play');
   play.disabled = isBusy(inst.id);
-  play.textContent = s.state === 'running' ? 'Playing' : s.state === 'installing' ? 'Preparing' : 'Play';
+  $('#play-label').textContent = s.state === 'running' ? 'Playing' : s.state === 'installing' ? 'Preparing' : 'Play';
   $('#delete-instance').disabled = isBusy(inst.id);
   if (state.tab === 'sync') renderSync();
 }
@@ -738,6 +785,13 @@ function cancelMicrosoftLogin() {
 
 api.onStatus(({ id, state: s, text, progress }) => {
   const previous = state.status[id];
+  // Starting and closing the game update last played and play time: fetch them.
+  if ((s === 'running') !== (previous?.state === 'running')) {
+    api.listInstances().then((list) => {
+      state.instances = list;
+      if (state.view === 'instance' && id === state.selected) renderMeta();
+    });
+  }
   state.status[id] = { state: s, text, progress: progress ?? previous?.progress ?? null };
   renderSidebar();
   if (id === state.selected) {

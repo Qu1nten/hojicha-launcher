@@ -59,6 +59,8 @@ async function launch(id, options = {}) {
     log(id, `> Launching ${instance.name} (${instance.gameVersion} ${instance.loader}) as ${account.name}`);
     const child = spawn(java, args, { cwd: gameDir, windowsHide: true });
     running.set(id, child);
+    const started = Date.now();
+    instances.save({ ...instances.get(id), lastPlayed: started });
     status(id, 'running', 'Playing', 1);
     readline.createInterface({ input: child.stdout }).on('line', (line) => log(id, line));
     readline.createInterface({ input: child.stderr }).on('line', (line) => log(id, line));
@@ -68,6 +70,12 @@ async function launch(id, options = {}) {
       if (finished) return;
       finished = true;
       running.delete(id);
+      try {
+        const current = instances.get(id);
+        instances.save({ ...current, playtime: (current.playtime || 0) + (Date.now() - started) });
+      } catch (err) {
+        log(id, `> Could not save play time: ${err.message}`);
+      }
       try {
         sync.afterExit(instances.get(id));
       } catch (err) {
@@ -179,20 +187,25 @@ function registerIpc() {
   });
 }
 
+// The whole UI is drawn 10% larger than its CSS sizes. The Windows buttons aren't zoomed, so their height
+// is the title bar's CSS height (40px, see .titlebar in style.css) times the zoom.
+const ZOOM = 1.1;
+const TITLEBAR_HEIGHT = Math.round(40 * ZOOM);
+
 function createWindow() {
   win = new BrowserWindow({
-    width: 1100,
-    height: 720,
-    minWidth: 820,
-    minHeight: 520,
+    width: 1200,
+    height: 790,
+    minWidth: 900,
+    minHeight: 570,
     backgroundColor: '#241913',
     title: 'Hojicha Launcher',
     icon: ICON,
     // Our own title bar (see .titlebar in style.css). Windows still draws the minimise/maximise/close buttons
     // over it, tinted to the palette, so Snap Layouts and the usual hover behaviour keep working.
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#241913', symbolColor: '#b09d8d', height: 44 },
-    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+    titleBarOverlay: { color: '#241913', symbolColor: '#b09d8d', height: TITLEBAR_HEIGHT },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), zoomFactor: ZOOM },
   });
   win.removeMenu();
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
