@@ -255,6 +255,7 @@ function resetSearch() {
 }
 
 function selectInstance(id) {
+  if (state.view === 'server' && !confirmDiscard()) return;
   if (state.view === 'instance' && id === state.selected) return;
   const changed = id !== state.selected;
   state.selected = id;
@@ -604,7 +605,10 @@ async function refreshServers(selectId) {
 }
 
 function selectServer(id) {
+  if (id !== state.selectedServer && !confirmDiscard()) return;
   state.selectedServer = id;
+  if (state.serverTab === 'settings') loadSettings();
+  if (state.serverTab === 'files') loadFiles();
   state.view = 'server';
   renderSidebar();
   renderMain();
@@ -791,14 +795,284 @@ $('#playit-unlink').onclick = async () => {
 };
 
 // Console | Online play tabs on the server page.
+// Console | Online play | Settings | Files tabs on the server page.
+const SERVER_TABS = ['console', 'online', 'settings', 'files'];
 function showServerTab(tab) {
+  if (tab !== state.serverTab && !confirmDiscard()) return;
   state.serverTab = tab;
   for (const button of document.querySelectorAll('[data-srv-tab]')) button.classList.toggle('active', button.dataset.srvTab === tab);
-  $('#srv-tab-console').hidden = tab !== 'console';
-  $('#srv-tab-online').hidden = tab !== 'online';
+  for (const name of SERVER_TABS) $(`#srv-tab-${name}`).hidden = name !== tab;
+  // The note about who can join belongs with the console and online play, not the settings editors.
+  $('#srv-intro').hidden = tab === 'settings' || tab === 'files';
   if (tab === 'console') renderServerLog(true);
+  if (tab === 'settings') loadSettings();
+  if (tab === 'files') loadFiles();
 }
 for (const button of document.querySelectorAll('[data-srv-tab]')) button.onclick = () => showServerTab(button.dataset.srvTab);
+
+// ---------- Server settings (server.properties as a form) ----------
+
+// [key, label, type, options, help]. Only keys present in the server's own server.properties are shown, so each
+// Minecraft version gets exactly the settings it has.
+const SETTINGS = [
+  ['General', [
+    ['motd', 'Welcome message', 'text', null, 'Shown under the server name in the server list.'],
+    ['max-players', 'Max players', 'number', [1, 500]],
+    ['gamemode', 'Game mode', 'select', ['survival', 'creative', 'adventure', 'spectator']],
+    ['force-gamemode', 'Always use this game mode', 'switch', null, 'Players are put back in it every time they join.'],
+    ['difficulty', 'Difficulty', 'select', ['peaceful', 'easy', 'normal', 'hard']],
+    ['hardcore', 'Hardcore', 'switch', null, 'One life: players who die can only watch.'],
+    ['pvp', 'PvP', 'switch', null, 'Players can hurt each other.'],
+  ]],
+  ['World', [
+    ['view-distance', 'View distance', 'number', [3, 32], 'In chunks.'],
+    ['simulation-distance', 'Simulation distance', 'number', [3, 32], 'How far away crops grow and mobs move, in chunks.'],
+    ['spawn-protection', 'Spawn protection', 'number', [0, 256], 'Blocks around spawn that only operators can change. 0 turns it off.'],
+    ['allow-flight', 'Allow flying', 'switch', null, "Players who fly with mods or plugins aren't kicked."],
+    ['allow-nether', 'Nether', 'switch'],
+    ['generate-structures', 'Structures', 'switch', null, 'Villages, temples and other structures in new chunks.'],
+    ['spawn-monsters', 'Monsters', 'switch'],
+    ['level-seed', 'Seed', 'text', null, 'Only used when a new world is created.'],
+    ['level-name', 'World folder', 'text', null, 'Change it to start a new world. The old one stays in its folder.'],
+  ]],
+  ['Players', [
+    ['player-idle-timeout', 'Kick idle players after', 'number', [0, 1440], 'In minutes. 0 never kicks anyone.'],
+    ['enable-command-block', 'Command blocks', 'switch'],
+  ]],
+  ['Network', [
+    ['server-port', 'Port', 'number', [1024, 65535], 'Online play sets up its own tunnel for each port.'],
+  ]],
+];
+
+let settingsState = { serverId: null, values: null, edits: {} };
+
+const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const serverIsUp = (id) => ['starting', 'running'].includes(serverState(id));
+
+function setMessage(node, text, kind = '') {
+  node.textContent = text;
+  node.className = `save-message${kind ? ` ${kind}` : ''}`;
+}
+
+async function loadSettings() {
+  const server = currentServer();
+  settingsState = { serverId: server.id, values: null, edits: {} };
+  setMessage($('#settings-message'), '');
+  $('#settings-restart').hidden = true;
+  try {
+    const { values } = await api.serverProperties(server.id);
+    if (settingsState.serverId !== server.id) return;
+    settingsState.values = values;
+  } catch (err) {
+    setMessage($('#settings-message'), errorText(err), 'error');
+  }
+  renderSettings();
+}
+
+function renderSettings() {
+  const { values, edits } = settingsState;
+  $('#settings-empty').hidden = Boolean(values);
+  $('#settings-empty').textContent = 'Start the server once: it creates its settings file the first time it runs. Then its settings show up here.';
+  $('#settings-form').hidden = !values;
+  $('#settings-save').disabled = !Object.keys(edits).length;
+  $('#settings-revert').disabled = !Object.keys(edits).length;
+  if (!values) return;
+
+  const row = ([key, label, type, options, help]) => {
+    const value = key in edits ? edits[key] : values[key];
+    const id = `setting-${key}`;
+    let control;
+    if (type === 'switch') {
+      control = el('input', { type: 'checkbox', className: 'switch', id, checked: value === 'true' });
+      control.onchange = () => editSetting(key, String(control.checked));
+    } else if (type === 'select') {
+      control = el('select', { id }, options.map((o) => el('option', { value: o, textContent: capitalize(o) })));
+      if (!options.includes(value)) control.append(el('option', { value, textContent: value }));
+      control.value = value;
+      control.onchange = () => editSetting(key, control.value);
+    } else {
+      control = el('input', { type: type === 'number' ? 'number' : 'text', id, value, spellcheck: false });
+      if (options) Object.assign(control, { min: options[0], max: options[1] });
+      control.oninput = () => editSetting(key, control.value, false);
+    }
+    return el('div', { className: `setting${key in edits ? ' changed' : ''}` }, [
+      el('label', { className: 'setting-text', htmlFor: id }, [
+        el('span', { className: 'setting-label', textContent: label }),
+        help ? el('span', { className: 'setting-help', textContent: help }) : null,
+      ]),
+      control,
+    ]);
+  };
+  $('#settings-form').replaceChildren(...SETTINGS.map(([group, fields]) => {
+    const present = fields.filter(([key]) => key in values);
+    if (!present.length) return null;
+    return el('section', { className: 'settings-group' }, [el('h3', { textContent: group }), ...present.map(row)]);
+  }).filter(Boolean));
+}
+
+// redraw: false while typing, so the text field keeps its cursor; the row's changed dot updates on its own.
+function editSetting(key, value, redraw = true) {
+  if (value === settingsState.values[key]) delete settingsState.edits[key];
+  else settingsState.edits[key] = value;
+  setMessage($('#settings-message'), '');
+  $('#settings-restart').hidden = true;
+  if (redraw) {
+    renderSettings();
+  } else {
+    $(`#setting-${CSS.escape(key)}`).closest('.setting').classList.toggle('changed', key in settingsState.edits);
+    $('#settings-save').disabled = $('#settings-revert').disabled = !Object.keys(settingsState.edits).length;
+  }
+}
+
+function validateSettings() {
+  for (const [, fields] of SETTINGS) {
+    for (const [key, label, type, options] of fields) {
+      if (!(key in settingsState.edits) || type !== 'number') continue;
+      const n = Number(settingsState.edits[key]);
+      if (!Number.isInteger(n) || n < options[0] || n > options[1]) return `${label} must be a whole number from ${options[0]} to ${options[1]}.`;
+    }
+  }
+  return null;
+}
+
+$('#settings-save').onclick = async () => {
+  const server = currentServer();
+  const problem = validateSettings();
+  if (problem) return setMessage($('#settings-message'), problem, 'error');
+  try {
+    settingsState.values = await api.setServerProperties(server.id, settingsState.edits);
+    settingsState.edits = {};
+    renderSettings();
+    savedMessage($('#settings-message'), $('#settings-restart'), server.id);
+  } catch (err) {
+    setMessage($('#settings-message'), errorText(err), 'error');
+  }
+};
+$('#settings-revert').onclick = () => {
+  settingsState.edits = {};
+  setMessage($('#settings-message'), '');
+  renderSettings();
+};
+
+// After saving: a running server only reads its settings when it starts, so offer the restart right there.
+function savedMessage(messageNode, restartButton, serverId) {
+  const up = serverIsUp(serverId);
+  setMessage(messageNode, up ? 'Saved. The server uses the new settings after a restart.' : 'Saved.', 'ok');
+  restartButton.hidden = !up;
+}
+
+async function restartServer(button, messageNode) {
+  const id = state.selectedServer;
+  button.disabled = true;
+  setMessage(messageNode, 'Restarting…');
+  try {
+    state.serverLogs[id] = [];
+    await api.restartServer(id);
+    setMessage(messageNode, 'Restarted with the new settings.', 'ok');
+    button.hidden = true;
+  } catch (err) {
+    setMessage(messageNode, errorText(err), 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+$('#settings-restart').onclick = () => restartServer($('#settings-restart'), $('#settings-message'));
+
+// ---------- Server files (config files as text) ----------
+
+let fileState = { serverId: null, files: [], path: null, saved: '', modified: null };
+const fileDirty = () => fileState.path !== null && $('#file-text').value !== fileState.saved;
+
+// Unsaved edits in the Settings form or an open file: ask before they're thrown away.
+function confirmDiscard() {
+  const unsaved = (state.serverTab === 'settings' && Object.keys(settingsState.edits).length) || (state.serverTab === 'files' && fileDirty());
+  return !unsaved || confirm('You have unsaved changes. Discard them?');
+}
+
+async function loadFiles() {
+  const server = currentServer();
+  const keep = fileState.serverId === server.id ? fileState.path : null;
+  fileState = { serverId: server.id, files: [], path: null, saved: '', modified: null };
+  try {
+    fileState.files = await api.serverFiles(server.id);
+  } catch (err) {
+    setMessage($('#file-message'), errorText(err), 'error');
+  }
+  renderFileList();
+  const first = fileState.files.find((f) => f.path === keep) || fileState.files[0];
+  if (first) await openFile(first.path);
+  else showFile(null);
+}
+
+function renderFileList() {
+  const groups = new Map();
+  for (const file of fileState.files) {
+    if (!groups.has(file.group)) groups.set(file.group, []);
+    groups.get(file.group).push(file);
+  }
+  $('#file-list').replaceChildren(...[...groups].flatMap(([group, files]) => [
+    el('h3', { textContent: group }),
+    ...files.map((file) => {
+      const name = file.group === 'Server' ? file.path : file.path.split('/').slice(1).join('/');
+      const button = el('button', { type: 'button', textContent: name, title: file.path, className: file.path === fileState.path ? 'active' : '' });
+      button.onclick = () => {
+        if (file.path !== fileState.path && (!fileDirty() || confirm('You have unsaved changes. Discard them?'))) openFile(file.path);
+      };
+      return button;
+    }),
+  ]));
+  if (!fileState.files.length) $('#file-list').append(el('p', { className: 'hint', textContent: 'No settings files yet. Start the server once to create them.' }));
+}
+
+async function openFile(file) {
+  setMessage($('#file-message'), '');
+  $('#file-restart').hidden = true;
+  try {
+    const { text, modified } = await api.readServerFile(fileState.serverId, file);
+    Object.assign(fileState, { path: file, saved: text, modified });
+    showFile(text);
+  } catch (err) {
+    setMessage($('#file-message'), errorText(err), 'error');
+  }
+  renderFileList();
+}
+
+function showFile(text) {
+  $('#file-name').textContent = fileState.path || '';
+  $('#file-text').value = text ?? '';
+  $('#file-text').disabled = text === null;
+  $('#file-save').disabled = true;
+  $('#file-reload').disabled = text === null;
+}
+
+$('#file-text').oninput = () => {
+  $('#file-save').disabled = !fileDirty();
+  setMessage($('#file-message'), fileDirty() ? 'Unsaved changes' : '');
+  $('#file-restart').hidden = true;
+};
+// Tab indents instead of leaving the editor (YAML is indentation-based).
+$('#file-text').onkeydown = (event) => {
+  if (event.key !== 'Tab' || event.ctrlKey || event.altKey) return;
+  event.preventDefault();
+  document.execCommand('insertText', false, '  ');
+};
+$('#file-save').onclick = async () => {
+  const id = fileState.serverId;
+  try {
+    const text = $('#file-text').value;
+    const { modified } = await api.writeServerFile(id, fileState.path, text, fileState.modified);
+    Object.assign(fileState, { saved: text, modified });
+    $('#file-save').disabled = true;
+    savedMessage($('#file-message'), $('#file-restart'), id);
+    if (fileState.path === 'server.properties') settingsState.serverId = null; // the Settings tab reloads it
+  } catch (err) {
+    setMessage($('#file-message'), errorText(err), 'error');
+  }
+};
+$('#file-reload').onclick = () => {
+  if (!fileDirty() || confirm('You have unsaved changes. Discard them?')) openFile(fileState.path);
+};
+$('#file-restart').onclick = () => restartServer($('#file-restart'), $('#file-message'));
 
 api.onServerOnline(({ id, ...live }) => {
   serverOnline[id] = live;
@@ -879,7 +1153,7 @@ function setAvatar(node, account, size) {
   node.style.width = node.style.height = `${size}px`;
   if (account?.skinUrl) {
     const scale = size / 8;
-    const sheet = `${64 * scale}px ${64 * scale}px`;
+    const sheet = `${64 * scale}px auto`; // auto keeps old 64x32 skins from stretching
     node.textContent = '';
     node.style.background = `url("${account.skinUrl}") ${-40 * scale}px ${-8 * scale}px / ${sheet} no-repeat, `
       + `url("${account.skinUrl}") ${-8 * scale}px ${-8 * scale}px / ${sheet} no-repeat`;
@@ -1259,6 +1533,7 @@ $('#srv-command-form').onsubmit = async (event) => {
   const settings = await api.getSettings();
   $('#memory').value = settings.memoryMb;
   await refreshAccounts();
+  api.refreshProfiles().then(renderAccounts, () => {}); // new skins show up once Mojang answers
   await refreshInstances();
   await refreshServers();
   $('#app-version').textContent = `v${await api.getVersion()}`;

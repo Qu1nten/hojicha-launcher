@@ -572,6 +572,57 @@ button.outline:hover:not(:disabled) { border-color: var(--liquor-bright); color:
 
 #playit-unlink { align-self: flex-start; padding-left: 0; padding-right: 0; }
 
+/* ---------- Server settings and files ---------- */
+
+/* Save, undo and restart sit above what they act on, on the right. */
+.save-bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 0 4px; }
+/* In the Settings tab the bar stays in view while the form scrolls under it (the glow never reaches this high,
+   so the plain background colour matches). */
+#srv-tab-settings .save-bar { position: sticky; top: -8px; z-index: 1; background: var(--roast); padding-top: 16px; }
+.save-message { flex: 1; min-width: 0; font-size: var(--text-s); color: var(--steam-dim); }
+.save-message.ok { color: var(--leaf); }
+.save-message.error { color: var(--ember); }
+
+.settings-form { display: flex; flex-direction: column; gap: 22px; max-width: 720px; padding-top: 4px; }
+.settings-group h3 { font-size: var(--text-m); font-weight: 700; margin: 0 0 4px; }
+.setting { display: flex; align-items: center; gap: 24px; padding: 10px 0; border-bottom: 1px solid rgba(74, 53, 40, 0.7); }
+.setting:last-child { border-bottom: none; }
+.setting-text { flex: 1; min-width: 0; }
+.setting-label { display: block; font-weight: 500; }
+.setting-help { display: block; font-size: var(--text-s); color: var(--steam-dim); }
+.setting input[type="text"] { width: 280px; }
+.setting input[type="number"] { width: 110px; text-align: right; }
+.setting select { width: 160px; }
+.setting.changed .setting-label::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 8px; vertical-align: 2px; border-radius: 50%; background: var(--liquor); }
+.settings-managed { max-width: 720px; padding: 18px 0 8px; }
+
+/* Files: the list on the left, the open file on the right. */
+.tab-files { display: flex; gap: 20px; overflow: hidden; padding: 12px 0 20px; }
+.tab-files[hidden] { display: none; }
+.file-list { width: 230px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.file-list > * { flex-shrink: 0; } /* scroll the list rather than squash its entries */
+.file-list h3 { font-size: var(--text-xs); font-weight: 500; color: var(--steam-dim); margin: 10px 8px 2px; }
+.file-list h3:first-child { margin-top: 0; }
+.file-list button { border: none; border-radius: 6px; padding: 5px 8px; text-align: left; font-weight: 400; font-size: var(--text-s); color: var(--steam-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-list button:hover:not(:disabled) { background: var(--kiln); color: var(--steam); }
+.file-list button.active { background: var(--kiln); color: var(--steam); }
+.file-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.file-head { display: flex; align-items: center; gap: 8px; }
+.file-head code { font: 500 var(--text-s) var(--mono); color: var(--steam); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+#file-text {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  padding: 12px 14px;
+  background: var(--roast-deep);
+  border-radius: 10px;
+  font: 13px / 1.55 var(--mono);
+  color: var(--steam);
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+}
+
 /* ---------- Dialogs ---------- */
 
 dialog {

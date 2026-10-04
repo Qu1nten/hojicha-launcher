@@ -10,6 +10,7 @@ const modrinth = require('./core/modrinth');
 const sync = require('./core/sync');
 const servers = require('./core/servers');
 const serverTypes = require('./core/serverTypes');
+const serverConfig = require('./core/serverConfig');
 const playit = require('./core/playit');
 const accounts = require('./core/accounts');
 const storage = require('./core/storage');
@@ -157,6 +158,7 @@ function registerIpc() {
   handle('settings:save', (patch) => settings.save(patch));
 
   handle('accounts:list', () => accounts.summary());
+  handle('accounts:refreshProfiles', () => accounts.refreshProfiles());
   handle('accounts:select', (id) => accounts.select(id));
   handle('accounts:remove', (id) => accounts.remove(id));
   handle('accounts:addOffline', (name) => accounts.addOffline(name));
@@ -217,10 +219,15 @@ function registerIpc() {
   handle('servers:openFolder', (id) => shell.openPath(servers.get(id).dir));
   // The selected account is made operator on the local server so FAWE/Arceon-style commands work.
   const serverOptions = () => ({ javaPath: settings.get().javaPath, opUsername: accounts.current()?.name });
-  handle('servers:start', async (id) => {
+  const startServer = async (id) => {
     const ready = servers.start(id, serverOptions());
     goOnline(id);
     await ready;
+  };
+  handle('servers:start', startServer);
+  handle('servers:restart', async (id) => {
+    await servers.stop(id);
+    await startServer(id);
   });
   handle('servers:stop', (id) => servers.stop(id));
   handle('servers:command', (id, text) => servers.command(id, text));
@@ -237,6 +244,12 @@ function registerIpc() {
     await launch(instanceId, { join: await ready });
   });
   handle('servers:online', (id) => online.get(id) || { state: 'off' });
+  const serverDir = (id) => servers.get(id).dir;
+  handle('servers:properties', (id) => ({ values: serverConfig.readProperties(serverDir(id)), managed: serverConfig.MANAGED_KEYS }));
+  handle('servers:setProperties', (id, changes) => serverConfig.writeProperties(serverDir(id), changes));
+  handle('servers:files', (id) => serverConfig.listFiles(serverDir(id)));
+  handle('servers:readFile', (id, file) => serverConfig.readFile(serverDir(id), file));
+  handle('servers:writeFile', (id, file, text, modified) => serverConfig.writeFile(serverDir(id), file, text, modified));
   handle('servers:setPublic', (id, on) => servers.setPublic(id, on));
   handle('servers:whitelistAdd', (id, name) => servers.addToWhitelist(id, name));
   handle('servers:whitelistRemove', (id, name) => servers.removeFromWhitelist(id, name));

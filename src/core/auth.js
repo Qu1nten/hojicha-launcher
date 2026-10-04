@@ -146,8 +146,18 @@ async function minecraftLogin(msAccessToken) {
     expiresAt: Date.now() + (mc.data.expires_in || 86400) * 1000,
     uuid: profile.data.id,
     name: profile.data.name,
-    skinUrl: skin?.url || null,
+    // Mojang hands out http:// texture links; the renderer only loads https images.
+    skinUrl: skin?.url?.replace(/^http:/, 'https:') || null,
   };
 }
 
-module.exports = { AuthError, startDeviceLogin, waitForDeviceLogin, refreshMicrosoft, minecraftLogin };
+// Current name and skin from Mojang's public session server; needs no token, so it works with expired sign-ins.
+async function publicProfile(uuid) {
+  const res = await request(`https://sessionserver.mojang.com/session/minecraft/profile/${uuid}`);
+  if (!res.ok || !res.data.name) throw new Error(`Could not load the Minecraft profile (HTTP ${res.status}).`);
+  const textures = (res.data.properties || []).find((p) => p.name === 'textures');
+  const skin = textures ? JSON.parse(Buffer.from(textures.value, 'base64').toString('utf8')).textures?.SKIN : null;
+  return { name: res.data.name, skinUrl: skin?.url?.replace(/^http:/, 'https:') || null };
+}
+
+module.exports = { AuthError, startDeviceLogin, waitForDeviceLogin, refreshMicrosoft, minecraftLogin, publicProfile };

@@ -43,7 +43,7 @@ function summary() {
       id: a.id,
       type: a.type,
       name: a.name,
-      skinUrl: a.skinUrl || null,
+      skinUrl: a.skinUrl?.replace(/^http:/, 'https:') || null, // older saved accounts kept http://
       locked: a.type === 'offline' && !unlocked,
     })),
   };
@@ -139,6 +139,26 @@ function cancelMicrosoftLogin() {
   if (pendingLogin) pendingLogin.cancelled = true;
 }
 
+// Picks up skin and name changes made since the last sign-in. Accounts that can't be reached keep what they had.
+async function refreshProfiles() {
+  const microsoft = load().accounts.filter((a) => a.type === 'microsoft');
+  const profiles = await Promise.all(microsoft.map((a) => auth.publicProfile(a.uuid).catch(() => null)));
+  const store = load(); // reload: the store may have changed while the requests ran
+  let changed = false;
+  microsoft.forEach((a, i) => {
+    const profile = profiles[i];
+    const account = store.accounts.find((s) => s.id === a.id);
+    if (!profile || !account) return;
+    if (account.name !== profile.name || account.skinUrl !== profile.skinUrl) {
+      account.name = profile.name;
+      account.skinUrl = profile.skinUrl;
+      changed = true;
+    }
+  });
+  if (changed) save(store);
+  return summary();
+}
+
 // Returns what the game needs to start as the selected account, refreshing Microsoft tokens when needed.
 async function launchIdentity() {
   const store = load();
@@ -174,6 +194,6 @@ async function launchIdentity() {
 }
 
 module.exports = {
-  setCipher, summary, current, select, remove, addOffline, hasVerifiedOwner,
+  setCipher, summary, current, select, remove, addOffline, hasVerifiedOwner, refreshProfiles,
   startMicrosoftLogin, finishMicrosoftLogin, cancelMicrosoftLogin, launchIdentity,
 };

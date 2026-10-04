@@ -144,6 +144,8 @@
       <nav class="tabs" aria-label="Server sections">
         <button data-srv-tab="console" class="active">Console</button>
         <button data-srv-tab="online">Online play <span id="online-dot" class="running-dot" hidden></span></button>
+        <button data-srv-tab="settings">Settings</button>
+        <button data-srv-tab="files">Files</button>
       </nav>
 
       <div class="tab tab-console" id="srv-tab-console">
@@ -197,6 +199,33 @@
           </div>
           <div id="online-error" class="error"></div>
         </section>
+      </div>
+
+      <div class="tab" id="srv-tab-settings" hidden>
+        <div class="save-bar">
+          <span id="settings-message" class="save-message" role="status"></span>
+          <button type="button" id="settings-restart" hidden>Restart server</button>
+          <button type="button" id="settings-revert" class="quiet">Undo changes</button>
+          <button type="button" id="settings-save" class="primary">Save</button>
+        </div>
+        <p id="settings-empty" class="intro" hidden></p>
+        <form id="settings-form" class="settings-form"></form>
+        <p class="hint settings-managed">Online mode, the IP address and the whitelist are set by Hojicha each time the server
+          starts, so they aren't listed here. Everything else is in the Files tab, under server.properties.</p>
+      </div>
+
+      <div class="tab tab-files" id="srv-tab-files" hidden>
+        <nav id="file-list" class="file-list" aria-label="Settings files"></nav>
+        <div class="file-editor">
+          <div class="file-head">
+            <code id="file-name"></code>
+            <span id="file-message" class="save-message" role="status"></span>
+            <button type="button" id="file-restart" hidden>Restart server</button>
+            <button type="button" id="file-reload" class="quiet">Reload</button>
+            <button type="button" id="file-save" class="primary">Save</button>
+          </div>
+          <textarea id="file-text" spellcheck="false" autocomplete="off" aria-label="File contents"></textarea>
+        </div>
       </div>
     </section>
   </main>
