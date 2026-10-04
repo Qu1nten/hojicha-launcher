@@ -16,7 +16,8 @@
     "start": "electron .",
     "icon": "electron build/render-icon.js",
     "dist": "electron-builder --win --publish never",
-    "release": "electron-builder --win --publish always"
+    "release": "electron-builder --win --publish never && node build/release.js",
+    "release:upload": "node build/release.js"
   },
   "build": {
     "appId": "com.hojicha.launcher",

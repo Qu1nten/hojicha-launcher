@@ -141,13 +141,15 @@ Installed launchers check this repo's GitHub releases on start and every 4 hours
 background, then the title bar shows **Restart to update** (otherwise it installs when the launcher closes). To ship
 one:
 
-1. Raise `version` in `package.json`.
-2. `npm run dist`, then create a GitHub release tagged `v<version>` and attach these three files from `dist\`:
-   `Hojicha-Launcher-Setup-<version>.exe`, its `.blockmap`, and `latest.yml`. Don't mark it as a pre-release:
-   the updater only follows the latest full release.
+1. Raise `version` in `package.json` (`npm version <x.y.z> --no-git-tag-version`), commit as `Release <x.y.z>` with
+   the changes listed in the message body, and push.
+2. Set `GH_TOKEN` to a fine-grained token for this repository with **Contents: Read and write**, then run
+   `npm run release`. It builds the installer and publishes one release tagged `v<version>` with the installer, its
+   `.blockmap` and `latest.yml`, using the `Release <x.y.z>` commit message as release notes
+   ([build/release.js](build/release.js)). If only the upload failed, `npm run release:upload` retries it without
+   building again.
 
-Or let electron-builder upload them: with a GitHub token in `GH_TOKEN`, `npm run release` creates a draft release
-with the files attached; publish the draft to send the update out.
+Don't mark a release as a pre-release: the updater only follows the latest full release.
 
 The installer's tweaks (own sub-folder, uninstall that only deletes the launcher's files, the sidebar picture) live in
 `build/installer.nsh` and `build/after-pack.js`.
