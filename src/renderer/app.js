@@ -2,6 +2,8 @@ const api = window.launcher;
 const $ = (selector) => document.querySelector(selector);
 
 const SYNC_ITEMS = [
+  ['saves', 'Worlds', 'Every world shows up in every instance. Opening one in a newer version upgrades it.'],
+  ['config', 'Mod settings', 'One shared config folder, so mod settings carry over.'],
   ['resourcepacks', 'Resource packs', 'One shared resource pack folder.'],
   ['shaderpacks', 'Shader packs', 'One shared shader pack folder.'],
   ['screenshots', 'Screenshots', 'All screenshots end up in one folder.'],
@@ -105,6 +107,7 @@ function formatDownloads(n) {
 // ---------- Instances ----------
 
 async function refreshInstances(selectId) {
+  const before = state.selected;
   state.instances = await api.listInstances();
   for (const inst of state.instances) {
     if (inst.running && !state.status[inst.id]) state.status[inst.id] = { state: 'running', text: 'Playing' };
@@ -114,6 +117,7 @@ async function refreshInstances(selectId) {
     state.view = 'instance';
   }
   if (!current()) state.selected = state.instances[0]?.id ?? null;
+  if (state.selected !== before) resetSearch(); // e.g. a new instance, or the selected one was deleted
   renderSidebar();
   renderMain();
 }
@@ -462,7 +466,7 @@ async function openVersionPicker(inst, mod) {
 function renderSync() {
   const inst = current();
   $('#sync-options').replaceChildren(...SYNC_ITEMS.map(([item, title, description]) => {
-    const box = el('input', { type: 'checkbox', className: 'switch', checked: Boolean(inst.sync[item]), disabled: isBusy(inst.id) });
+    const box = el('input', { type: 'checkbox', className: 'switch', checked: inst.sync?.[item] !== false, disabled: isBusy(inst.id) });
     box.onchange = async () => {
       $('#sync-error').textContent = '';
       try {
@@ -555,6 +559,7 @@ function searchRow(inst, hit, type) {
       try {
         Object.assign(inst, await api.install(inst.id, hit.projectId, type));
         action.replaceWith(el('span', { className: 'installed', textContent: 'Installed' }));
+        invalidateSearch(); // dependencies may have come along: their rows update when Browse is next shown
       } catch (err) {
         action.disabled = false;
         action.textContent = 'Install';
@@ -563,6 +568,10 @@ function searchRow(inst, hit, type) {
       }
     };
   }
+  return projectRow(hit, type, action);
+}
+
+function projectRow(hit, type, action) {
   const title = el('a', { className: 'title', textContent: hit.title, tabIndex: 0 });
   title.onclick = () => api.openExternal(`https://modrinth.com/${type}/${hit.slug}`);
   return el('li', {}, [
@@ -1110,8 +1119,11 @@ async function fillVersions() {
 async function openNewDialog() {
   $('#new-error').textContent = '';
   $('#new-name').value = '';
-  $('#new-create').disabled = false;
+  document.querySelector('input[name="new-kind"][value="blank"]').checked = true;
+  choosePack(null, null);
+  showNewKind();
   $('#new-dialog').showModal();
+  $('#new-name').focus(); // type a name straight away
   try {
     await fillVersions();
   } catch (err) {
@@ -1119,8 +1131,108 @@ async function openNewDialog() {
   }
 }
 
+// ---------- New instance: from a modpack ----------
+
+const newKind = () => document.querySelector('input[name="new-kind"]:checked').value;
+const packSearch = { query: '', offset: 0, total: 0, done: false, request: 0, timer: null, chosen: null };
+
+function showNewKind() {
+  const pack = newKind() === 'modpack';
+  $('#new-blank').hidden = pack;
+  $('#new-modpack').hidden = !pack;
+  $('#new-error').textContent = '';
+  updateNewCreate();
+  if (pack && !packSearch.done) runPackSearch(false); // show popular packs straight away
+}
+
+// A modpack instance needs a pack picked first; an empty name then means the pack's own name.
+function updateNewCreate() {
+  const pack = newKind() === 'modpack';
+  $('#new-create').disabled = pack && !packSearch.chosen;
+  $('#new-name').placeholder = pack ? packSearch.chosen?.title || 'Name of the modpack' : 'My instance';
+}
+
+function choosePack(hit, row) {
+  packSearch.chosen = hit;
+  for (const li of $('#pack-results').children) li.setAttribute('aria-selected', String(li === row));
+  updateNewCreate();
+}
+
+async function runPackSearch(append) {
+  const results = $('#pack-results');
+  const s = packSearch;
+  if (!append) {
+    s.query = $('#pack-query').value.trim();
+    s.offset = 0;
+  }
+  const request = ++s.request;
+  if (!append && !s.done) results.replaceChildren(emptyRow(s.query ? `Searching for "${s.query}"…` : 'Loading popular modpacks…'));
+  let page;
+  try {
+    page = await api.searchModpacks(s.query, s.offset);
+  } catch (err) {
+    if (request === s.request) results.replaceChildren(emptyRow(`Modrinth couldn't be reached. Check your internet connection. (${errorText(err)})`));
+    return;
+  }
+  if (request !== s.request) return;
+  const rows = page.hits.map(packRow);
+  if (append) results.append(...rows);
+  else {
+    results.replaceChildren(...(rows.length
+      ? rows
+      : [emptyRow(s.query ? `Nothing found for "${s.query}". Try a different word.` : 'Nothing found.')]));
+    results.scrollTop = 0;
+  }
+  s.offset += page.hits.length;
+  s.total = page.total;
+  s.done = true;
+  $('#pack-more').hidden = s.offset >= s.total;
+}
+
+// A modpack row: click (or Enter/Space) picks it; the title still opens its Modrinth page.
+function packRow(hit) {
+  const row = projectRow(hit, 'modpack', null);
+  row.tabIndex = 0;
+  row.setAttribute('role', 'option');
+  row.setAttribute('aria-selected', String(packSearch.chosen?.projectId === hit.projectId));
+  row.onclick = (event) => {
+    if (!event.target.closest('a')) choosePack(hit, row);
+  };
+  row.onkeydown = (event) => {
+    if (event.target !== row || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    choosePack(hit, row);
+  };
+  return row;
+}
+
+// Makes the instance at once and switches to it; the pack's files download in the background.
+async function createFromModpack() {
+  const create = $('#new-create');
+  create.disabled = true;
+  try {
+    const created = await api.installModpack(packSearch.chosen.projectId, $('#new-name').value);
+    $('#new-dialog').close();
+    state.tab = 'mods'; // watch the mods arrive
+    await refreshInstances(created.id);
+  } catch (err) {
+    $('#new-error').textContent = errorText(err);
+    create.disabled = false;
+  }
+}
+
 async function createInstance(event) {
   event.preventDefault();
+  if (newKind() === 'modpack') {
+    if (document.activeElement === $('#pack-query')) { // Enter in the search box searches
+      clearTimeout(packSearch.timer);
+      runPackSearch(false);
+    } else if (packSearch.chosen) {
+      $('#new-error').textContent = '';
+      await createFromModpack();
+    }
+    return;
+  }
   const create = $('#new-create');
   create.disabled = true;
   $('#new-error').textContent = '';
@@ -1360,14 +1472,14 @@ $('#open-folder').onclick = () => api.openFolder(state.selected);
 
 $('#delete-instance').onclick = async () => {
   const inst = current();
-  if (!confirm(`Delete "${inst.name}" with all its worlds and mods? Anything in shared sync folders is kept.`)) return;
+  if (!confirm(`Delete "${inst.name}" with its mods? Anything in shared sync folders, like synced worlds, is kept.`)) return;
   try {
     await api.deleteInstance(inst.id);
     state.selected = null;
     await refreshInstances();
   } catch (err) {
     state.status[inst.id] = { state: 'error', text: errorText(err) };
-    renderStatus();
+    await refreshInstances(); // a half-finished delete may have removed the instance already
   }
 };
 
@@ -1389,6 +1501,13 @@ $('#empty-new-instance').onclick = openNewDialog;
 $('#new-snapshots').onchange = fillVersions;
 $('#new-cancel').onclick = () => $('#new-dialog').close();
 $('#new-form').onsubmit = createInstance;
+for (const radio of document.querySelectorAll('input[name="new-kind"]')) radio.onchange = showNewKind;
+// Search as you type, once typing pauses.
+$('#pack-query').oninput = () => {
+  clearTimeout(packSearch.timer);
+  packSearch.timer = setTimeout(() => runPackSearch(false), 350);
+};
+$('#pack-more').onclick = () => runPackSearch(true);
 
 $('#memory').onchange = saveSettings;
 for (const button of document.querySelectorAll('[data-theme-choice]')) {

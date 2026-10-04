@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('launcher', {
   setModVersion: (id, file, versionId) => invoke('mods:setVersion', id, file, versionId),
   search: (id, query, type, offset) => invoke('modrinth:search', id, query, type, offset),
   install: (id, projectId, type) => invoke('modrinth:install', id, projectId, type),
+  searchModpacks: (query, offset) => invoke('modpacks:search', query, offset),
+  installModpack: (projectId, name) => invoke('modpacks:install', projectId, name),
   openExternal: (url) => invoke('openExternal', url),
 
   listServers: () => invoke('servers:list'),

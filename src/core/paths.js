@@ -3,7 +3,7 @@ const path = require('path');
 // Everything the launcher stores lives under one home folder (see storage.js for which one):
 //   instances\   one folder per instance
 //   servers\     servers created in the launcher (added server folders stay where they are)
-//   synced\      resource packs, shader packs, screenshots and options shared between instances
+//   synced\      worlds, mod configs, resource packs, shader packs, screenshots and options shared between instances
 //   meta\        game versions, libraries, assets and Java runtimes, shared by all instances
 //   config\      settings, accounts, servers, and Electron's own browser data
 let root = null;

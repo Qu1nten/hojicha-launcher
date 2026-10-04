@@ -54,7 +54,7 @@ function create({ name, gameVersion, loader, loaderVersion }) {
     loader,
     loaderVersion: loader === 'fabric' ? loaderVersion : null,
     created: Date.now(),
-    sync: {},     // item name -> true when shared with other instances (see sync.js)
+    sync: {},     // item name -> false when not shared with other instances; everything else is (see sync.js)
     content: {},  // "mods/foo.jar" -> Modrinth metadata for files installed from Modrinth
     playtime: 0,      // milliseconds spent in the game, added when it closes
     lastPlayed: null, // when the game last started (ms since epoch)

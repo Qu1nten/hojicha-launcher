@@ -19,10 +19,11 @@
   and when you last played it. Hojicha downloads the game, libraries, assets and the matching Java runtime from
   Mojang itself; game files are never redistributed.
 - **Modrinth browser**: search mods, resource packs and shaders filtered to the instance's version and loader.
+- **Modpacks**: New instance → Modpack makes an instance from a Fabric modpack on Modrinth, with everything it needs.
   One click installs the newest compatible version plus its required dependencies, and any installed mod can be
   switched to another version.
-- **Instance syncing**: share resource packs, shader packs, screenshots, options/keybinds and the server list
-  between instances.
+- **Instance syncing**: share worlds, mod settings, resource packs, shader packs, screenshots, options/keybinds and
+  the server list between instances. Everything is synced by default; switch items off per instance.
 - **Local servers**: create a Paper, Purpur or Fabric server in a couple of clicks, or add a server folder you
   already have, and use **Start and join** to start it and jump straight in.
 - **Online play**: let friends join a local server over the internet through [playit.gg](https://playit.gg),
@@ -60,11 +61,12 @@
 | --- | --- |
 | Microsoft, Xbox Live, Minecraft services | Signing in, checking ownership, your skin |
 | Mojang | Game versions, libraries, assets and Java runtimes, and your current skin and name at startup |
-| Modrinth | Searching and downloading mods, resource packs and shaders |
+| Modrinth | Searching and downloading mods, resource packs, shaders and modpacks |
 | Fabric | Fabric loader versions, and Fabric servers |
 | PaperMC, PurpurMC | The server jar, only when you create a Paper or Purpur server |
 | playit.gg | Only if you set up online play: linking your account, and relaying players to your server |
 | GitHub | Checking for launcher updates and downloading them, and playit's agent program |
+| GitHub, GitLab | Files a modpack you install says to download from there |
 
 ## Local servers
 
@@ -111,7 +113,7 @@ That folder holds the launcher and everything it stores:
 app\         the launcher itself
 instances\   one folder per instance (the game folder is instances\<name>\minecraft)
 servers\     servers made with New server
-synced\      resource packs, shader packs, screenshots and options shared between instances
+synced\      worlds, mod configs, resource packs, shader packs, screenshots and options shared between instances
 meta\        Minecraft versions, libraries, assets, Java and playit's agent, shared by all instances
 config\      settings, accounts, servers and the playit.gg link
 uninstall.exe, and a Hojicha Launcher shortcut
@@ -170,6 +172,7 @@ src/core/accounts.js      account storage, token refresh, offline-account rules
 src/core/minecraft.js     version JSONs, Fabric, downloads, launch arguments
 src/core/java.js          Mojang Java runtimes
 src/core/modrinth.js      Modrinth search/install/dependencies/versions
+src/core/modpacks.js      installing Modrinth modpacks (.mrpack) as new instances
 src/core/sync.js          instance syncing
 src/core/instances.js     instance storage, play time
 src/core/servers.js       local servers: creating, starting, server.properties, whitelist
@@ -186,6 +189,7 @@ build/release.js          publishes a built installer as a GitHub release (npm r
 - Windows only for now.
 - No Forge, NeoForge or Quilt yet.
 - Synced `options.txt` is shared as-is, so syncing it between very different versions can mix up settings.
+- Synced worlds are upgraded when opened in a newer version and may not open in older ones afterwards.
 - Online play uses playit.gg's own address for each server; your own domain isn't supported.
 
 ## Contact

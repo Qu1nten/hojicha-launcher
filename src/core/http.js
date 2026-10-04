@@ -9,8 +9,11 @@ const { version: LAUNCHER_VERSION } = require('../../package.json');
 // Modrinth asks every client to send an identifying User-Agent.
 const USER_AGENT = `HojichaLauncher/${LAUNCHER_VERSION}`;
 
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+// With a body, POSTs it as JSON.
+async function fetchJson(url, body) {
+  const res = await fetch(url, body === undefined
+    ? { headers: { 'User-Agent': USER_AGENT } }
+    : { method: 'POST', headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json();
 }

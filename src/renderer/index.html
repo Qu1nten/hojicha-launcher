@@ -241,18 +241,38 @@
     <form id="new-form" method="dialog" class="dialog-body">
       <h2>New instance</h2>
       <label class="field">Name
-        <input id="new-name" placeholder="My instance" spellcheck="false">
+        <input id="new-name" placeholder="My instance" spellcheck="false" autofocus>
       </label>
-      <label class="field">Minecraft version
-        <select id="new-version"></select>
-      </label>
-      <label class="check"><input id="new-snapshots" type="checkbox"> Show snapshots</label>
-      <label class="field">Mod loader
-        <select id="new-loader">
-          <option value="fabric">Fabric</option>
-          <option value="vanilla">None (vanilla)</option>
-        </select>
-      </label>
+      <fieldset class="field type-picker two">
+        <legend>Start from</legend>
+        <label class="type-option">
+          <input type="radio" name="new-kind" value="blank" checked>
+          <span class="type-name">Blank</span>
+          <span class="type-desc">Pick a version, add mods later</span>
+        </label>
+        <label class="type-option">
+          <input type="radio" name="new-kind" value="modpack">
+          <span class="type-name">Modpack</span>
+          <span class="type-desc">A ready-made Fabric pack from Modrinth</span>
+        </label>
+      </fieldset>
+      <div id="new-blank" class="dialog-section">
+        <label class="field">Minecraft version
+          <select id="new-version"></select>
+        </label>
+        <label class="check"><input id="new-snapshots" type="checkbox"> Show snapshots</label>
+        <label class="field">Mod loader
+          <select id="new-loader">
+            <option value="fabric">Fabric</option>
+            <option value="vanilla">None (vanilla)</option>
+          </select>
+        </label>
+      </div>
+      <div id="new-modpack" class="dialog-section" hidden>
+        <input id="pack-query" placeholder="Search Modrinth modpacks" spellcheck="false" aria-label="Search Modrinth modpacks">
+        <ul id="pack-results" class="rows pack-list" role="listbox" aria-label="Modpacks"></ul>
+        <button type="button" id="pack-more" class="load-more" hidden>Show more modpacks</button>
+      </div>
       <div id="new-error" class="error"></div>
       <div class="dialog-actions">
         <button type="button" id="new-cancel" class="quiet">Cancel</button>

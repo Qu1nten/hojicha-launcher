@@ -7,6 +7,7 @@ const settings = require('./core/settings');
 const instances = require('./core/instances');
 const minecraft = require('./core/minecraft');
 const modrinth = require('./core/modrinth');
+const modpacks = require('./core/modpacks');
 const sync = require('./core/sync');
 const servers = require('./core/servers');
 const serverTypes = require('./core/serverTypes');
@@ -123,7 +124,7 @@ async function launch(id, options = {}) {
     readline.createInterface({ input: child.stderr }).on('line', (line) => log(id, line));
 
     let finished = false;
-    const finish = (message) => {
+    const finish = (message, failed = false) => {
       if (finished) return;
       finished = true;
       running.delete(id);
@@ -137,12 +138,13 @@ async function launch(id, options = {}) {
         sync.afterExit(instances.get(id));
       } catch (err) {
         message = `Sync failed: ${err.message}`;
+        failed = true;
       }
       log(id, `> ${message}`);
-      status(id, 'idle', message);
+      status(id, failed ? 'error' : 'idle', message);
     };
-    child.on('error', (err) => finish(`Failed to start Java: ${err.message}`));
-    child.on('exit', (code) => finish(`Game exited with code ${code}`));
+    child.on('error', (err) => finish(`Failed to start Java: ${err.message}`, true));
+    child.on('exit', (code) => finish(code ? `The game crashed (exit code ${code}). See the Log tab for details.` : 'Game closed', Boolean(code)));
   } catch (err) {
     running.delete(id);
     status(id, 'error', err.message);
@@ -178,7 +180,9 @@ function registerIpc() {
   handle('instances:list', () => instances.list().map((i) => ({ ...i, running: running.has(i.id) })));
   handle('instances:create', async ({ name, gameVersion, loader }) => {
     const loaderVersion = loader === 'fabric' ? await minecraft.latestFabricLoader(gameVersion) : null;
-    return instances.create({ name: name.trim() || gameVersion, gameVersion, loader, loaderVersion });
+    const instance = instances.create({ name: name.trim() || gameVersion, gameVersion, loader, loaderVersion });
+    sync.linkFolders(instance); // synced from the start, so downloads land in the shared folders
+    return instance;
   });
   handle('instances:delete', (id) => {
     assertIdle(id);
@@ -210,6 +214,28 @@ function registerIpc() {
       status(id, running.has(id) ? 'running' : 'idle', running.has(id) ? 'Running' : '');
     }
   });
+  // Makes a new instance from a Modrinth modpack. Returns it straight away; its files download in the background,
+  // reported through its status, and it counts as busy (no Play, Delete or sync changes) until they're in.
+  handle('modpacks:search', (query, offset) => modrinth.searchModpacks(query, offset));
+  handle('modpacks:install', async (projectId, name) => {
+    const pack = await modpacks.createInstance(projectId, name);
+    const { id } = pack.instance;
+    running.set(id, null);
+    status(id, 'installing', 'Installing modpack', 0);
+    (async () => {
+      let result = ['idle', 'Modpack installed'];
+      try {
+        await modpacks.fillInstance(pack, (text, progress = null) => status(id, 'installing', text, progress));
+        sync.linkFolders(instances.get(id));
+      } catch (err) {
+        result = ['error', `The modpack didn't finish installing (${err.message}). Delete this instance and try again.`];
+      }
+      running.delete(id);
+      status(id, ...result);
+    })();
+    return pack.instance;
+  });
+
   handle('servers:list', () => servers.list().map((s) => ({ ...s, running: servers.isRunning(s.id) })));
   handle('servers:add', async () => {
     const result = await dialog.showOpenDialog(win, { title: 'Choose your server folder', properties: ['openDirectory'] });

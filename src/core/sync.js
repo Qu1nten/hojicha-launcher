@@ -7,9 +7,17 @@ const instances = require('./instances');
 //  - Folders are directory junctions into synced/, so all instances see the same files live.
 //  - Single files are copied in before launch and copied back when the game exits
 //    (linking single files is unreliable on Windows and the game may replace them on save).
-const FOLDERS = ['resourcepacks', 'shaderpacks', 'screenshots'];
+// Everything is synced unless the instance switched it off (instance.sync[item] === false).
+const FOLDERS = ['saves', 'resourcepacks', 'shaderpacks', 'screenshots', 'config'];
 const FILES = ['options.txt', 'servers.dat'];
 const ITEMS = [...FOLDERS, ...FILES];
+// Folders whose entries are whole units (a world is a folder): a name clash keeps both, renaming the newcomer,
+// instead of merging two worlds' files into one.
+const KEEP_BOTH = ['saves'];
+
+function isSynced(instance, item) {
+  return instance.sync?.[item] !== false;
+}
 
 function isLink(p) {
   try {
@@ -39,10 +47,39 @@ function linkFolder(gameDir, name) {
   }
   if (fs.existsSync(local)) {
     // Move what the instance already had into the shared folder (without overwriting) before linking.
-    fs.cpSync(local, shared, { recursive: true, force: false });
-    fs.rmSync(local, { recursive: true, force: true });
+    if (KEEP_BOTH.includes(name)) {
+      for (const entry of fs.readdirSync(local)) {
+        fs.cpSync(path.join(local, entry), freeName(shared, entry), { recursive: true });
+      }
+    } else {
+      fs.cpSync(local, shared, { recursive: true, force: false });
+    }
+    // Move the folder aside rather than deleting it in place: Windows can keep a deleted folder around for a
+    // moment (e.g. while antivirus scans it), which makes the link below fail. If linking fails anyway, put it back.
+    const old = `${local}.unsynced`;
+    fs.rmSync(old, { recursive: true, force: true, maxRetries: 5 });
+    fs.renameSync(local, old);
+    try {
+      fs.symlinkSync(shared, local, 'junction');
+    } catch (err) {
+      fs.renameSync(old, local);
+      throw err;
+    }
+    try {
+      fs.rmSync(old, { recursive: true, force: true, maxRetries: 5 });
+    } catch (err) {
+      console.error(`Could not remove ${old}:`, err.message); // its contents are already in synced/
+    }
+    return;
   }
   fs.symlinkSync(shared, local, 'junction');
+}
+
+// "New World" -> "New World (2)" etc. when the name is already taken in dir.
+function freeName(dir, entry) {
+  let target = path.join(dir, entry);
+  for (let n = 2; fs.existsSync(target); n++) target = path.join(dir, `${entry} (${n})`);
+  return target;
 }
 
 function unlinkFolder(gameDir, name, keepCopy) {
@@ -50,6 +87,11 @@ function unlinkFolder(gameDir, name, keepCopy) {
   if (!isLink(local)) return;
   fs.unlinkSync(local); // removes only the junction, never the shared contents
   if (keepCopy) fs.cpSync(path.join(paths.synced, name), local, { recursive: true });
+}
+
+function seedFile(local, shared) {
+  fs.mkdirSync(paths.synced, { recursive: true });
+  fs.copyFileSync(local, shared);
 }
 
 function setSync(id, item, enabled) {
@@ -63,24 +105,23 @@ function setSync(id, item, enabled) {
     // First instance to share a file seeds the shared copy.
     const shared = path.join(paths.synced, item);
     const local = path.join(gameDir, item);
-    if (!fs.existsSync(shared) && fs.existsSync(local)) {
-      fs.mkdirSync(paths.synced, { recursive: true });
-      fs.copyFileSync(local, shared);
-    }
+    if (!fs.existsSync(shared) && fs.existsSync(local)) seedFile(local, shared);
   }
-  instance.sync[item] = enabled;
+  instance.sync = { ...instance.sync, [item]: enabled };
   return instances.save(instance);
 }
 
 function beforeLaunch(instance) {
   const gameDir = instances.gameDir(instance.id);
   for (const item of ITEMS) {
-    if (!instance.sync[item]) continue;
+    if (!isSynced(instance, item)) continue;
     if (FOLDERS.includes(item)) {
       linkFolder(gameDir, item);
     } else {
       const shared = path.join(paths.synced, item);
-      if (fs.existsSync(shared)) fs.copyFileSync(shared, path.join(gameDir, item));
+      const local = path.join(gameDir, item);
+      if (fs.existsSync(shared)) fs.copyFileSync(shared, local);
+      else if (fs.existsSync(local)) seedFile(local, shared); // first instance to share it
     }
   }
 }
@@ -89,10 +130,7 @@ function afterExit(instance) {
   const gameDir = instances.gameDir(instance.id);
   for (const item of FILES) {
     const local = path.join(gameDir, item);
-    if (instance.sync[item] && fs.existsSync(local)) {
-      fs.mkdirSync(paths.synced, { recursive: true });
-      fs.copyFileSync(local, path.join(paths.synced, item));
-    }
+    if (isSynced(instance, item) && fs.existsSync(local)) seedFile(local, path.join(paths.synced, item));
   }
 }
 
@@ -100,22 +138,25 @@ function afterExit(instance) {
 function deleteInstance(id) {
   const gameDir = instances.gameDir(id);
   for (const item of FOLDERS) unlinkFolder(gameDir, item, false);
-  fs.rmSync(instances.dir(id), { recursive: true, force: true });
+  // Retries ride out Windows briefly holding files (e.g. antivirus scanning the game's last writes).
+  fs.rmSync(instances.dir(id), { recursive: true, force: true, maxRetries: 10 });
 }
 
 // Re-points every synced folder at synced/. Junctions store absolute paths, so they go stale when the
-// launcher folder is moved; run at startup so instance folders always look right.
+// launcher folder is moved; run at startup (and for new instances) so instance folders always look right.
 function relinkAll() {
-  for (const instance of instances.list()) {
-    for (const item of FOLDERS) {
-      if (!instance.sync[item]) continue;
-      try {
-        linkFolder(instances.gameDir(instance.id), item);
-      } catch (err) {
-        console.error(`Could not relink ${item} for ${instance.id}:`, err.message);
-      }
+  for (const instance of instances.list()) linkFolders(instance);
+}
+
+function linkFolders(instance) {
+  for (const item of FOLDERS) {
+    if (!isSynced(instance, item)) continue;
+    try {
+      linkFolder(instances.gameDir(instance.id), item);
+    } catch (err) {
+      console.error(`Could not relink ${item} for ${instance.id}:`, err.message);
     }
   }
 }
 
-module.exports = { FOLDERS, setSync, beforeLaunch, afterExit, deleteInstance, relinkAll };
+module.exports = { FOLDERS, isSynced, setSync, beforeLaunch, afterExit, deleteInstance, relinkAll, linkFolders };

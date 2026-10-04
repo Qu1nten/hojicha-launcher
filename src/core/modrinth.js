@@ -34,11 +34,21 @@ async function search(id, query, type = 'mod', offset = 0) {
   const instance = loadInstance(id);
   const facets = [[`project_type:${type}`], [`versions:${instance.gameVersion}`]];
   if (type === 'mod') facets.push([`categories:${instance.loader}`]);
+  const result = await searchModrinth(query, facets, offset);
+  const installed = installedProjects(instance);
+  return { total: result.total, hits: result.hits.map((h) => ({ ...h, installed: installed.has(h.projectId) })) };
+}
+
+// Fabric modpacks for the New instance dialog. A pack sets its own game version, so any version goes.
+function searchModpacks(query, offset = 0) {
+  return searchModrinth(query, [['project_type:modpack'], ['categories:fabric']], offset);
+}
+
+async function searchModrinth(query, facets, offset) {
   // With no search text, show the most downloaded projects instead of an arbitrary "relevance" order.
   const index = query ? 'relevance' : 'downloads';
   const params = new URLSearchParams({ query, index, facets: JSON.stringify(facets), limit: '20', offset: String(offset) });
   const result = await fetchJson(`${API}/search?${params}`);
-  const installed = installedProjects(instance);
   return {
     total: result.total_hits,
     hits: result.hits.map((h) => ({
@@ -49,7 +59,6 @@ async function search(id, query, type = 'mod', offset = 0) {
       author: h.author,
       downloads: h.downloads,
       iconUrl: h.icon_url,
-      installed: installed.has(h.project_id),
     })),
   };
 }
@@ -181,4 +190,4 @@ function removeMod(id, file) {
   instances.save(instance);
 }
 
-module.exports = { search, install, listMods, removeMod, listModVersions, setModVersion };
+module.exports = { search, searchModpacks, install, listMods, removeMod, listModVersions, setModVersion };

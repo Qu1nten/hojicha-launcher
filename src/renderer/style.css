@@ -755,6 +755,17 @@ dialog::backdrop { background: var(--backdrop); }
 .type-option input { position: absolute; opacity: 0; pointer-events: none; }
 .type-name { color: var(--steam); font-weight: 700; font-size: var(--text-m); }
 .type-desc { font-size: var(--text-xs); color: var(--steam-dim); line-height: 1.3; }
+/* New instance: Blank or Modpack, two cards. Both sections take the same room so switching never resizes the dialog. */
+#new-dialog { width: 520px; }
+.type-picker.two { grid-template-columns: repeat(2, 1fr); }
+.dialog-section { display: flex; flex-direction: column; gap: 12px; height: 320px; }
+.dialog-section[hidden] { display: none; }
+.pack-list { flex: 1; min-height: 0; overflow-y: auto; margin-right: -8px; padding-right: 8px; }
+.pack-list > li { cursor: pointer; border-radius: 8px; padding: 10px 8px; }
+.pack-list > li:hover { background: var(--roast); }
+.pack-list > li[aria-selected="true"] { background: var(--roast); box-shadow: inset 0 0 0 1px var(--liquor); }
+.pack-list > li:focus-visible { outline: 2px solid var(--liquor); outline-offset: -2px; }
+.dialog-section .load-more { margin: 0; }
 /* Adding an existing folder skips everything above, so it sits apart from the new-server fields. */
 .existing-folder { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--clay); font-size: var(--text-s); color: var(--steam-dim); }
 .existing-folder button { padding: 5px 14px; }
