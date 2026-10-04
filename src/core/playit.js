@@ -210,5 +210,5 @@ async function ensureTunnel(port, onManual = () => {}) {
 
 module.exports = {
   setCipher, isLinked, startLink, finishLink, cancelLink, unlink,
-  startAgent, stopAgent, stopAll, ensureTunnel, CLAIM_PAGE, TUNNELS_PAGE,
+  startAgent, stopAgent, stopAll, ensureTunnel, TUNNELS_PAGE,
 };

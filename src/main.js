@@ -30,7 +30,6 @@ try {
   process.exit(1);
 }
 paths.setRoot(HOME);
-storage.carryOverEncryptionKey(HOME, app.getPath('appData'), paths.electron);
 app.setPath('userData', paths.electron);
 
 // One launcher at a time: two would start the same servers and games and write the same files. Opening it again
@@ -370,32 +369,8 @@ function startUpdateChecks() {
   setInterval(check, 4 * 60 * 60 * 1000);
 }
 
-// Small window shown while data from an older version is moved into the home folder.
-function showMovingWindow() {
-  const moving = new BrowserWindow({
-    width: 420, height: 140, frame: false, resizable: false, backgroundColor: '#241913', icon: ICON, show: false,
-  });
-  const page = `<body style="margin:0;height:100vh;display:grid;place-content:center;gap:6px;background:#241913;
-    color:#efe6dc;font:15px 'Segoe UI',sans-serif;text-align:center"><b>Moving your launcher data</b>
-    <span style="color:#b09d8d;font-size:13px">into ${HOME.replace(/[<&]/g, '')}<br>This only happens once.</span></body>`;
-  moving.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`);
-  moving.once('ready-to-show', () => moving.show());
-  return moving;
-}
-
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   if (!firstInstance) return;
-  const moves = storage.pendingMoves(HOME, app.getPath('appData'));
-  let moving = null;
-  if (moves.length) {
-    moving = showMovingWindow();
-    try {
-      await storage.migrate(HOME, app.getPath('appData'), moves);
-    } catch (err) {
-      dialog.showErrorBox('Hojicha Launcher', `Some data could not be moved into ${HOME}:\n\n${err.message}\n\nNothing was lost. The launcher will try again next time it starts.`);
-    }
-  }
-  instances.renameOldFolders();
   sync.relinkAll();
   if (safeStorage.isEncryptionAvailable()) {
     const cipher = {
@@ -408,7 +383,6 @@ app.whenReady().then(async () => {
   servers.restoreAllPending();
   registerIpc();
   createWindow();
-  if (moving) moving.destroy();
   startUpdateChecks();
 });
 

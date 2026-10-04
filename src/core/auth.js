@@ -17,9 +17,6 @@ const XSTS_ERRORS = {
   2148916238: 'This is a child account. An adult must add it to a Microsoft family group before it can play.',
 };
 
-const APP_NOT_APPROVED = 'Microsoft sign-in worked, but Mojang has not approved Hojicha Launcher for the Minecraft API yet. '
-  + 'Sign-in will start working once the app is approved.';
-
 class AuthError extends Error {
   constructor(message, code) {
     super(message);
@@ -126,11 +123,7 @@ async function minecraftLogin(msAccessToken) {
   const mc = await request('https://api.minecraftservices.com/authentication/login_with_xbox', {
     json: { identityToken: `XBL3.0 x=${userHash};${xsts.data.Token}` },
   });
-  if (!mc.ok) {
-    const message = JSON.stringify(mc.data);
-    if (mc.status === 403 || /Invalid app registration/i.test(message)) throw new AuthError(APP_NOT_APPROVED, 'app_not_approved');
-    throw new AuthError(`Minecraft sign-in failed (HTTP ${mc.status}).`, 'minecraft');
-  }
+  if (!mc.ok) throw new AuthError(`Minecraft sign-in failed (HTTP ${mc.status}).`, 'minecraft');
   const accessToken = mc.data.access_token;
 
   // A Java Edition profile only exists for accounts that own the game (directly or through Game Pass).
@@ -160,4 +153,4 @@ async function publicProfile(uuid) {
   return { name: res.data.name, skinUrl: skin?.url?.replace(/^http:/, 'https:') || null };
 }
 
-module.exports = { AuthError, startDeviceLogin, waitForDeviceLogin, refreshMicrosoft, minecraftLogin, publicProfile };
+module.exports = { startDeviceLogin, waitForDeviceLogin, refreshMicrosoft, minecraftLogin, publicProfile };

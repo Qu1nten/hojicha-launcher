@@ -194,6 +194,6 @@ async function launchIdentity() {
 }
 
 module.exports = {
-  setCipher, summary, current, select, remove, addOffline, hasVerifiedOwner, refreshProfiles,
+  setCipher, summary, current, select, remove, addOffline, refreshProfiles,
   startMicrosoftLogin, finishMicrosoftLogin, cancelMicrosoftLogin, launchIdentity,
 };

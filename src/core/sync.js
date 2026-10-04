@@ -104,7 +104,7 @@ function deleteInstance(id) {
 }
 
 // Re-points every synced folder at synced/. Junctions store absolute paths, so they go stale when the
-// launcher folder is moved or its data is migrated; run at startup so instance folders always look right.
+// launcher folder is moved; run at startup so instance folders always look right.
 function relinkAll() {
   for (const instance of instances.list()) {
     for (const item of FOLDERS) {
@@ -118,4 +118,4 @@ function relinkAll() {
   }
 }
 
-module.exports = { ITEMS, FOLDERS, setSync, beforeLaunch, afterExit, deleteInstance, relinkAll };
+module.exports = { FOLDERS, setSync, beforeLaunch, afterExit, deleteInstance, relinkAll };

@@ -30,7 +30,8 @@
   accounts and use a whitelist.
 - **Two teas**: the dark roasted **Hojicha** theme or the light whisked-green **Matcha** theme, switched from the
   title bar.
-- **Microsoft accounts**: sign in with Microsoft's official device-code flow.
+- **Microsoft accounts**: sign in with Microsoft's official device-code flow. Your skin's face shows next to your
+  name, and skin or name changes are picked up each time the launcher starts.
 - **Updates in the launcher**: new versions download in the background and install with one click.
 
 | Browse Modrinth | Online play |
@@ -115,8 +116,7 @@ uninstall.exe, and a Hojicha Launcher shortcut
 ```
 
 Nothing is stored in AppData. The folder has to be writable, so install it just for you (an install for everyone
-in Program Files won't start). Data from 0.2.x and older (in `%APPDATA%\Hojicha Launcher\data`) is moved over on
-first start.
+in Program Files won't start).
 
 To uninstall, run `uninstall.exe` in the launcher folder, or use **Settings → Apps**. After asking, it deletes the
 whole launcher folder, **including your instances, servers and worlds**, so copy anything you want to keep first.
@@ -162,7 +162,7 @@ The installer's tweaks (own sub-folder, uninstall that only deletes the launcher
 ```
 src/main.js               Electron main process, IPC, game and server process handling, updates
 src/preload.js            API exposed to the UI
-src/renderer/             UI (HTML/CSS/JS), fonts and icons
+src/renderer/             UI (HTML/CSS/JS), fonts and icons; theme.js applies the saved theme before the first paint
 src/core/auth.js          Microsoft -> Xbox Live -> Minecraft sign-in and ownership check
 src/core/accounts.js      account storage, token refresh, offline-account rules
 src/core/minecraft.js     version JSONs, Fabric, downloads, launch arguments
@@ -174,8 +174,9 @@ src/core/servers.js       local servers: creating, starting, server.properties, 
 src/core/serverConfig.js  the Settings and Files tabs: server.properties and config files
 src/core/serverTypes.js   Paper, Purpur and Fabric server downloads
 src/core/playit.js        online play: playit.gg linking, agent and tunnel
-src/core/storage.js       where data lives, moving data from older versions
-build/                    pixel-art logo (logo.png, 16x16), icons and installer scripts
+src/core/storage.js       picks the launcher folder everything is stored in
+build/                    pixel-art logos (logo.png and logo-matcha.png, 16x16), icons and installer scripts
+build/release.js          publishes a built installer as a GitHub release (npm run release)
 ```
 
 ## Known limitations

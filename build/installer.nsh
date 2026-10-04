@@ -34,8 +34,7 @@
 
 ; Runs when the install starts, after the folder page. Whatever folder was picked, install into a
 ; "Hojicha Launcher" folder inside it (so the launcher never mixes with someone else's files), with the
-; app itself in its app\ sub-folder. The 0.1.x folder name "hojicha-launcher" moves next door to
-; "Hojicha Launcher"; the old uninstaller then removes the old folder.
+; app itself in its app\ sub-folder.
 ; This replaces electron-builder's own check (instFilesPre), which skips the sub-folder whenever
 ; the path merely contains the app name, e.g. "T:\Hojicha launcher code".
 !macro customPageAfterChangeDir
@@ -53,14 +52,9 @@
         StrCpy $INSTDIR "$INSTDIR" -4
       ${EndIf}
 
-      StrLen $0 "\${APP_PACKAGE_NAME}"
+      StrLen $0 "\${APP_FILENAME}"
       StrCpy $1 "$INSTDIR" "" -$0
-      StrLen $2 "\${APP_FILENAME}"
-      StrCpy $3 "$INSTDIR" "" -$2
-      ${If} $1 == "\${APP_PACKAGE_NAME}"
-        StrCpy $INSTDIR "$INSTDIR" -$0
-        StrCpy $INSTDIR "$INSTDIR\${APP_FILENAME}"
-      ${ElseIf} $3 != "\${APP_FILENAME}"
+      ${If} $1 != "\${APP_FILENAME}"
         StrCpy $INSTDIR "$INSTDIR\${APP_FILENAME}"
       ${EndIf}
       Call instFilesPre ; a no-op now, but NSIS fails the build on functions that are never called
