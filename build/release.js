@@ -68,10 +68,11 @@ async function main() {
     await github('DELETE', `/releases/${draft.id}`);
   }
 
-  // Release notes: the "Release x.y.z" commit's message, without the title and co-author lines.
-  const notes = git(`log -1 --format=%b --grep="^Release ${version}$"`).split('\n').filter((l) => !/^Co-Authored-By:/i.test(l)).join('\n').trim();
+  // Release notes: the "Release vx.y.z" commit's message, without the title and co-author lines. Older release
+  // commits have no "v" ("Release 0.6.1"), so both are found.
+  const notes = git(`log -1 --format=%b -E --grep="^Release v?${version.replace(/\./g, '\\.')}$"`).split('\n').filter((l) => !/^Co-Authored-By:/i.test(l)).join('\n').trim();
   const release = await github('POST', '/releases', {
-    tag_name: tag, target_commitish: head, name: version, body: notes, draft: true,
+    tag_name: tag, target_commitish: head, name: tag, body: notes, draft: true,
   });
 
   for (const file of files) {

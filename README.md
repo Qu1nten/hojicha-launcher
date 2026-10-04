@@ -144,11 +144,11 @@ Installed launchers check this repo's GitHub releases on start and every 4 hours
 background, then the title bar shows **Restart to update** (otherwise it installs when the launcher closes). To ship
 one:
 
-1. Raise `version` in `package.json` (`npm version <x.y.z> --no-git-tag-version`), commit as `Release <x.y.z>` with
+1. Raise `version` in `package.json` (`npm version <x.y.z> --no-git-tag-version`), commit as `Release v<x.y.z>` with
    the changes listed in the message body, and push.
 2. Set `GH_TOKEN` to a fine-grained token for this repository with **Contents: Read and write**, then run
    `npm run release`. It builds the installer and publishes one release tagged `v<version>` with the installer, its
-   `.blockmap` and `latest.yml`, using the `Release <x.y.z>` commit message as release notes
+   `.blockmap` and `latest.yml`, using the `Release v<x.y.z>` commit message as release notes
    ([build/release.js](build/release.js)). If only the upload failed, `npm run release:upload` retries it without
    building again.
 
