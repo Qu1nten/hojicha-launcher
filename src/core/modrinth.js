@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const instances = require('./instances');
-const { fetchJson, downloadFile } = require('./http');
+const { fetchJson, hashFile, downloadFile } = require('./http');
 
 const API = 'https://api.modrinth.com/v2';
 
@@ -139,13 +139,57 @@ function listMods(id) {
       const meta = instance.content[`mods/${file}`];
       return {
         file,
-        title: meta?.title || file,
+        title: meta?.title || file.replace(/\.jar(\.disabled)?$/i, ''),
         versionNumber: meta?.versionNumber || '',
         iconUrl: meta?.iconUrl || null,
         fromModrinth: Boolean(meta), // only these can switch versions
+        enabled: !/\.disabled$/i.test(file),
       };
     })
     .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+// Switches a mod on or off the way Fabric expects: a switched-off mod is renamed to .jar.disabled, so the game
+// skips it but it stays in the list. Returns its new file name.
+function setModEnabled(id, file, enabled) {
+  if (file.includes('/') || file.includes('\\')) throw new Error('Invalid file name');
+  const instance = loadInstance(id);
+  const modsDir = path.join(instances.gameDir(id), 'mods');
+  const base = file.replace(/\.disabled$/i, '');
+  const target = enabled ? base : `${base}.disabled`;
+  if (target === file) return target;
+  if (fs.existsSync(path.join(modsDir, target))) throw new Error(`The mods folder already has a file called ${target}.`);
+  fs.renameSync(path.join(modsDir, file), path.join(modsDir, target));
+  const meta = instance.content[`mods/${file}`];
+  if (meta) {
+    delete instance.content[`mods/${file}`];
+    instance.content[`mods/${target}`] = meta;
+    instances.save(instance);
+  }
+  return target;
+}
+
+// Newer versions of the instance's Modrinth mods, found in one request by the files' hashes: file -> { versionId,
+// versionNumber }. Only full releases count as updates, the same as a fresh install prefers them.
+async function checkModUpdates(id) {
+  const instance = loadInstance(id);
+  const gameDir = instances.gameDir(id);
+  const byHash = new Map();
+  for (const [rel, meta] of Object.entries(instance.content)) {
+    if (!rel.startsWith('mods/')) continue;
+    byHash.set(await hashFile(path.join(gameDir, rel), 'sha1'), { file: rel.slice('mods/'.length), meta });
+  }
+  if (!byHash.size) return {};
+  const latest = await fetchJson(`${API}/version_files/update`, {
+    hashes: [...byHash.keys()], algorithm: 'sha1', loaders: [instance.loader], game_versions: [instance.gameVersion],
+  });
+  const updates = {};
+  for (const [hash, version] of Object.entries(latest)) {
+    const mod = byHash.get(hash);
+    if (!mod || version.id === mod.meta.versionId || version.version_type !== 'release') continue;
+    updates[mod.file] = { versionId: version.id, versionNumber: version.version_number };
+  }
+  return updates;
 }
 
 function modrinthMeta(instance, file) {
@@ -179,6 +223,11 @@ async function setModVersion(id, file, versionId, report = () => {}) {
   } finally {
     instances.save(instance);
   }
+  // A switched-off mod stays off in its new version.
+  if (/\.disabled$/i.test(file)) {
+    const fresh = Object.keys(instance.content).find((rel) => rel.startsWith('mods/') && instance.content[rel].versionId === version.id);
+    if (fresh && !/\.disabled$/i.test(fresh)) setModEnabled(id, fresh.slice('mods/'.length), false);
+  }
   return { title: meta.title, versionNumber: version.version_number };
 }
 
@@ -190,4 +239,6 @@ function removeMod(id, file) {
   instances.save(instance);
 }
 
-module.exports = { search, searchModpacks, install, listMods, removeMod, listModVersions, setModVersion };
+module.exports = {
+  search, searchModpacks, install, listMods, setModEnabled, checkModUpdates, removeMod, listModVersions, setModVersion,
+};

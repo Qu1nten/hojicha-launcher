@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, safeStorage } = require('electron');
+const os = require('os');
 const path = require('path');
 const readline = require('readline');
 const { spawn } = require('child_process');
@@ -19,6 +20,7 @@ const storage = require('./core/storage');
 const { autoUpdater } = require('electron-updater');
 
 const EULA_URL = 'https://aka.ms/MinecraftEULA';
+const HOMEPAGE = require('../package.json').homepage;
 const APP_ID = 'com.hojicha.launcher'; // must match build.appId so pinned taskbar icons group with the window
 const ICON = path.join(__dirname, '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
 
@@ -141,7 +143,9 @@ async function launch(id, options = {}) {
     status(id, 'installing', 'Signing in', 0.01);
     const account = await accounts.launchIdentity();
     const report = (text, progress = null) => status(id, 'installing', text, progress);
-    const { java, args } = await minecraft.prepare(instance, gameDir, settings.get(), account, report, options);
+    // An instance can have its own memory; otherwise it uses the launcher's default.
+    const launchSettings = { ...settings.get(), ...(instance.memoryMb ? { memoryMb: instance.memoryMb } : {}) };
+    const { java, args } = await minecraft.prepare(instance, gameDir, launchSettings, account, report, options);
     unpackIcons(); // a newer version may bring new items
     sync.beforeLaunch(instance);
 
@@ -214,6 +218,18 @@ function registerIpc() {
     if (patch.theme) applyTheme(saved.theme);
     return saved;
   });
+  // Settings > Java: the player picks java.exe here, so the page never names a program to run.
+  handle('settings:pickJava', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Choose java.exe',
+      filters: [{ name: 'Java', extensions: ['exe'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || !result.filePaths.length) return null;
+    const file = result.filePaths[0];
+    if (!/^javaw?\.exe$/i.test(path.basename(file))) throw new Error('Choose java.exe (or javaw.exe), in the bin folder of a Java install.');
+    return settings.save({ javaPath: file });
+  });
 
   handle('accounts:list', () => accounts.summary());
   handle('accounts:refreshProfiles', () => accounts.refreshProfiles());
@@ -234,6 +250,22 @@ function registerIpc() {
     const icon = iconFor(i, (name) => instances.save({ ...instances.get(i.id), icon: name }));
     return { ...i, icon, iconUrl: icons.url(icon), running: running.has(i.id) };
   }));
+  // The instance's Settings tab: its name (the folder keeps its own) and its memory (null: the launcher default).
+  handle('instances:update', (id, patch) => {
+    const instance = instances.get(id);
+    if ('name' in patch) {
+      const name = String(patch.name).trim();
+      if (!name) throw new Error('Give the instance a name.');
+      if (name.length > 64) throw new Error('Keep the name to 64 characters.');
+      instance.name = name;
+    }
+    if ('memoryMb' in patch) {
+      const mb = patch.memoryMb === null ? null : Number(patch.memoryMb);
+      if (mb !== null && !(mb >= 512)) throw new Error('Give the game at least 512 MB.');
+      instance.memoryMb = mb;
+    }
+    return instances.save(instance);
+  });
   handle('instances:setIcon', (id, name) => {
     if (!icons.has(name)) throw new Error('Unknown icon');
     return instances.save({ ...instances.get(id), icon: name });
@@ -257,6 +289,11 @@ function registerIpc() {
 
   handle('mods:list', (id) => modrinth.listMods(id));
   handle('mods:remove', (id, file) => modrinth.removeMod(id, file));
+  handle('mods:setEnabled', (id, file, enabled) => {
+    if (running.has(id)) throw new Error('Close the game first: Windows keeps mod files locked while it runs.');
+    return modrinth.setModEnabled(id, file, enabled);
+  });
+  handle('mods:updates', (id) => modrinth.checkModUpdates(id));
   handle('mods:versions', (id, file) => modrinth.listModVersions(id, file));
   handle('mods:setVersion', async (id, file, versionId) => {
     if (running.has(id)) throw new Error('Close the game first: Windows keeps mod files locked while it runs.');
@@ -382,13 +419,24 @@ function registerIpc() {
     playit.unlink();
   });
 
-  handle('app:version', () => app.getVersion());
   handle('app:stopServersAndClose', async () => {
     await servers.stopAll();
     allowClose = true;
     if (win && !win.isDestroyed()) win.close();
   });
   handle('update:get', () => update);
+  // Settings > About: look for a newer version now instead of at the next 4-hourly check.
+  handle('update:check', async () => {
+    if (!app.isPackaged || update.state !== 'none') return update;
+    await autoUpdater.checkForUpdates();
+    return update;
+  });
+  handle('app:info', () => ({
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+    totalMemoryMb: Math.round(os.totalmem() / 1024 / 1024),
+  }));
+  handle('app:openFolder', () => shell.openPath(paths.root));
   handle('update:install', () => {
     if (update.state !== 'ready') return;
     if (running.size) throw new Error('Close the game first');
@@ -396,7 +444,7 @@ function registerIpc() {
   });
 
   handle('openExternal', (url) => {
-    if (url.startsWith('https://modrinth.com/') || url === EULA_URL || url === playit.TUNNELS_PAGE) shell.openExternal(url);
+    if (url.startsWith('https://modrinth.com/') || url === EULA_URL || url === playit.TUNNELS_PAGE || url === HOMEPAGE) shell.openExternal(url);
   });
 }
 
@@ -462,6 +510,12 @@ function createWindow() {
     if (win.isMinimized()) win.restore();
     win.focus();
     send('close-requested', runningServers.map((s) => s.name));
+  });
+  // Some mouse drivers send their back and forward buttons as Windows app commands instead of mouse buttons: pass
+  // them to the page, which steps through its own history (and ignores the same press arriving both ways).
+  win.on('app-command', (_event, command) => {
+    if (command === 'browser-backward') send('navigate', 'back');
+    if (command === 'browser-forward') send('navigate', 'forward');
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());

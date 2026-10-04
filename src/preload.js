@@ -6,6 +6,11 @@ contextBridge.exposeInMainWorld('launcher', {
   getSettings: () => invoke('settings:get'),
   saveSettings: (patch) => invoke('settings:save', patch),
   setPopupOpen: (open) => invoke('window:popup', open),
+  pickJava: () => invoke('settings:pickJava'),
+  getAppInfo: () => invoke('app:info'),
+  openLauncherFolder: () => invoke('app:openFolder'),
+  checkForUpdate: () => invoke('update:check'),
+  updateInstance: (id, patch) => invoke('instances:update', id, patch),
   listVersions: () => invoke('versions:list'),
 
   listAccounts: () => invoke('accounts:list'),
@@ -30,6 +35,8 @@ contextBridge.exposeInMainWorld('launcher', {
 
   listMods: (id) => invoke('mods:list', id),
   removeMod: (id, file) => invoke('mods:remove', id, file),
+  setModEnabled: (id, file, enabled) => invoke('mods:setEnabled', id, file, enabled),
+  checkModUpdates: (id) => invoke('mods:updates', id),
   listModVersions: (id, file) => invoke('mods:versions', id, file),
   setModVersion: (id, file, versionId) => invoke('mods:setVersion', id, file, versionId),
   search: (id, query, type, offset) => invoke('modrinth:search', id, query, type, offset),
@@ -67,7 +74,6 @@ contextBridge.exposeInMainWorld('launcher', {
   serverCommand: (id, text) => invoke('servers:command', id, text),
   joinServer: (id, instanceId) => invoke('servers:join', id, instanceId),
 
-  getVersion: () => invoke('app:version'),
   stopServersAndClose: () => invoke('app:stopServersAndClose'),
   onCloseRequested: (callback) => ipcRenderer.on('close-requested', (_event, names) => callback(names)),
   getUpdate: () => invoke('update:get'),
@@ -75,6 +81,7 @@ contextBridge.exposeInMainWorld('launcher', {
   onUpdate: (callback) => ipcRenderer.on('update', (_event, data) => callback(data)),
 
   onStatus: (callback) => ipcRenderer.on('status', (_event, data) => callback(data)),
+  onNavigate: (callback) => ipcRenderer.on('navigate', (_event, direction) => callback(direction)),
   onLog: (callback) => ipcRenderer.on('log', (_event, data) => callback(data)),
   onServerStatus: (callback) => ipcRenderer.on('server-status', (_event, data) => callback(data)),
   onServerLog: (callback) => ipcRenderer.on('server-log', (_event, data) => callback(data)),

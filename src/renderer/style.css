@@ -240,7 +240,6 @@ input:focus-visible, select:focus-visible { outline: none; }
 .brand img { image-rendering: pixelated; } /* pixel-art logo: keep every pixel sharp */
 /* The cup follows the theme: roasted hojicha, or a bowl of matcha. */
 :root:not([data-theme="matcha"]) .logo-matcha, :root[data-theme="matcha"] .logo-hojicha { display: none; }
-.app-version { font-size: var(--text-m); font-weight: 500; color: var(--steam-dim); letter-spacing: 0.02em; transform: translateY(1px); }
 
 .titlebar-main {
   flex: 1;
@@ -428,17 +427,23 @@ input:focus-visible, select:focus-visible { outline: none; }
 .side-add::before { content: "+"; display: inline-block; width: 14px; color: var(--liquor-text); font-weight: 700; }
 .side-add:hover:not(:disabled) { color: var(--steam); background: var(--kiln-raised); }
 
-.side-footer { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--clay); }
+/* The account, and the gear that opens Settings. */
+.side-footer { display: flex; align-items: center; gap: 4px; padding-top: 12px; border-top: 1px solid var(--clay); }
 
 .account-chip {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   border: none;
   padding: 6px 8px;
   text-align: left;
 }
+.settings-button { flex-shrink: 0; display: grid; place-items: center; padding: 10px; border: none; color: var(--steam-dim); font-size: 16px; }
+.settings-button:hover:not(:disabled) { color: var(--steam); background: var(--kiln-raised); }
+/* Open: the main area's colour, like a selected instance. */
+.settings-button.active, .settings-button.active:hover:not(:disabled) { color: var(--steam); background: var(--roast); }
 .avatar {
   width: 32px;
   height: 32px;
@@ -457,19 +462,13 @@ input:focus-visible, select:focus-visible { outline: none; }
 .account-kind { font-size: var(--text-xs); color: var(--steam-dim); }
 .account-chip.needs-account .account-name { color: var(--liquor-text); }
 
-.memory {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 8px;
-  color: var(--steam-dim);
-  font-size: var(--text-s);
-}
-.memory-field { display: flex; align-items: center; gap: 6px; }
-.memory-field input { width: 82px; padding: 5px 8px; text-align: right; }
-.memory .unit { font-size: var(--text-xs); }
+/* ---------- Settings page ---------- */
 
-.disclaimer { padding: 0 8px; font-size: 12px; line-height: 1.4; color: var(--steam-dim); opacity: 0.75; }
+.settings-page { margin-top: 12px; }
+.setting-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.settings-form > .save-message:empty { display: none; }
+.disclaimer { font-size: var(--text-xs); color: var(--steam-dim); }
+
 
 /* ---------- Main ---------- */
 
@@ -512,7 +511,52 @@ main {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Renaming: the name turns into a text box of the same size, so nothing around it moves. */
+.heading .rename {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  margin: -1px 0 -1px -9px;
+  padding: 0 8px;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  line-height: 1.2;
+  background: transparent;
+  border-color: var(--liquor);
+}
+.heading .rename[hidden] { display: none; }
 .meta { color: var(--steam-dim); margin-top: 2px; }
+
+/* ⋯ next to Play, and the small menu it opens under itself, right-aligned with it. */
+.more-wrap { position: relative; }
+.more-button { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: 999px; font-size: 18px; }
+.more-button[aria-expanded="true"] { color: var(--steam); background: var(--kiln); }
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--kiln);
+  border: 1px solid var(--clay);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px -12px var(--edge-shadow);
+}
+.menu[hidden] { display: none; }
+.menu > button {
+  border: none;
+  border-radius: 6px;
+  padding: 7px 10px;
+  text-align: left;
+  font-weight: 400;
+}
+.menu > button:hover:not(:disabled), .menu > button:focus-visible { background: var(--kiln-raised); outline: none; }
+.menu-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 4px 4px 10px; }
+.menu-row select { padding: 3px 6px; font-size: var(--text-s); }
+.menu hr { width: 100%; margin: 4px 0; border: none; border-top: 1px solid var(--clay); }
 
 /* Line icons drawn to sit with the typeface: round ends, about the weight of its medium strokes. */
 .icon { width: 1em; height: 1em; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -608,6 +652,47 @@ button.play:not(:disabled) .play-fill { display: none; }
 /* The version in the Mods list opens the version picker. */
 .version-button { font-size: var(--text-s); font-weight: 400; padding: 5px 10px; white-space: nowrap; }
 .version-button::after { content: ""; display: inline-block; margin-left: 7px; vertical-align: 2px; border: 4px solid transparent; border-top-color: currentColor; border-bottom-width: 0; }
+
+/* ---------- Mods tab ---------- */
+
+/* Filter, count and Update all. It stays in view while the list scrolls under it (the glow never reaches this
+   high, so the plain background colour matches). */
+.mods-bar {
+  position: sticky;
+  top: -8px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 8px;
+  background: var(--roast);
+}
+.mods-bar[hidden] { display: none; }
+.mods-bar input { width: 240px; }
+.mod-count { flex: 1; min-width: 0; font-size: var(--text-s); color: var(--steam-dim); }
+
+/* Dense rows so a big modpack fits: name, any update, the version, the on/off switch, and Remove on hover. */
+.mod-list > li.mod-row { gap: 12px; padding: 6px 4px; }
+.mod-row .thumb { width: 28px; height: 28px; border-radius: 6px; }
+.mod-row .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The version column has one width, so versions line up whatever their length. */
+.mod-row .version-button, .mod-row .version {
+  width: 128px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+.mod-row .version-button { border-color: transparent; color: var(--steam-dim); }
+.mod-row .version-button:hover:not(:disabled), .mod-row .version-button:focus-visible { border-color: var(--clay); color: var(--steam); }
+.mod-row .version { padding: 0 10px; }
+.mod-update { flex-shrink: 0; padding: 3px 10px; font-size: var(--text-s); color: var(--leaf-text); }
+/* Remove keeps its room, so nothing shifts when it shows on hover or keyboard focus. */
+.mod-remove { opacity: 0; padding: 5px 8px; font-size: var(--text-s); }
+.mod-row:hover .mod-remove, .mod-row:focus-within .mod-remove { opacity: 1; }
+/* A switched-off mod fades back but stays in the list. */
+.mod-row.off .title { color: var(--steam-dim); }
+.mod-row.off .thumb { opacity: 0.45; filter: grayscale(1); }
 
 #versions-dialog { width: 480px; }
 .versions-list { max-height: 360px; overflow-y: auto; margin-right: -8px; padding-right: 8px; }

@@ -13,7 +13,6 @@
       <img class="logo-hojicha" src="../../build/icon.png" alt="" width="40" height="40">
       <img class="logo-matcha" src="../../build/icon-matcha.png" alt="" width="40" height="40">
       <span>Hojicha</span>
-      <span id="app-version" class="app-version"></span>
     </div>
     <div class="titlebar-main">
       <div class="theme-switch" role="radiogroup" aria-label="Theme">
@@ -53,15 +52,9 @@
           <span id="account-kind" class="account-kind">Needed to play</span>
         </span>
       </button>
-      <label class="memory">
-        <span>Memory</span>
-        <span class="memory-field">
-          <input id="memory" type="number" min="512" step="512" aria-label="Memory in megabytes">
-          <span class="unit">MB</span>
-        </span>
-      </label>
-      <div id="settings-error" class="error"></div>
-      <p class="disclaimer">Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</p>
+      <button type="button" id="open-settings" class="settings-button" title="Settings" aria-label="Settings">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5.2h6.2M12.6 5.2H14M2 10.8h1.4M7.8 10.8H14"/><circle cx="10.4" cy="5.2" r="2"/><circle cx="5.6" cy="10.8" r="2"/></svg>
+      </button>
     </div>
   </aside>
 
@@ -74,12 +67,27 @@
     <section id="instance-view" class="view" hidden>
       <header class="view-header">
         <div class="heading">
-          <h1 id="inst-name"></h1>
+          <h1 id="inst-name" title="Double-click to rename"></h1>
+          <input id="inst-rename" class="rename" type="text" maxlength="64" spellcheck="false" autocomplete="off" aria-label="Instance name" hidden>
           <p id="inst-meta" class="meta meta-row"></p>
         </div>
         <div class="header-actions">
-          <button id="open-folder" class="quiet">Open folder</button>
-          <button id="delete-instance" class="quiet danger">Delete</button>
+          <!-- Everything you do to the instance itself, rather than play it, behind one quiet button. -->
+          <div class="more-wrap">
+            <button type="button" id="inst-more" class="quiet more-button" aria-haspopup="menu" aria-expanded="false" aria-controls="inst-menu" aria-label="More for this instance" title="More">
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle class="fill" cx="3.2" cy="8" r="1.3"/><circle class="fill" cx="8" cy="8" r="1.3"/><circle class="fill" cx="12.8" cy="8" r="1.3"/></svg>
+            </button>
+            <div id="inst-menu" class="menu" role="menu" hidden>
+              <button type="button" role="menuitem" id="menu-rename">Rename</button>
+              <button type="button" role="menuitem" id="menu-icon">Change icon</button>
+              <label class="menu-row">Memory
+                <select id="inst-memory" aria-label="Memory for this instance"></select>
+              </label>
+              <button type="button" role="menuitem" id="open-folder">Open folder</button>
+              <hr>
+              <button type="button" role="menuitem" id="delete-instance" class="danger">Delete instance</button>
+            </div>
+          </div>
           <div class="play-wrap">
             <button id="play" class="play">
               <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path class="fill" d="M5 3.3v9.4a.9.9 0 0 0 1.4.75l7.2-4.7a.9.9 0 0 0 0-1.5L6.4 2.55A.9.9 0 0 0 5 3.3z"/></svg>
@@ -100,7 +108,12 @@
       </nav>
 
       <div class="tab" id="tab-mods">
-        <ul id="mod-list" class="rows"></ul>
+        <div id="mods-bar" class="mods-bar" hidden>
+          <input id="mod-filter" type="search" placeholder="Filter mods" spellcheck="false" autocomplete="off" aria-label="Filter mods">
+          <span id="mod-count" class="mod-count" role="status"></span>
+          <button type="button" id="mods-update-all" hidden>Update all</button>
+        </div>
+        <ul id="mod-list" class="rows mod-list"></ul>
       </div>
 
       <div class="tab" id="tab-browse" hidden>
@@ -125,6 +138,66 @@
 
       <div class="tab tab-log" id="tab-log" hidden>
         <pre id="log" class="console"></pre>
+      </div>
+    </section>
+
+    <section id="settings-view" class="view" hidden>
+      <header class="view-header">
+        <div class="heading"><h1>Settings</h1></div>
+      </header>
+      <div class="tab settings-page">
+        <div class="settings-form">
+          <section class="settings-group" aria-labelledby="game-heading">
+            <h3 id="game-heading">Game</h3>
+            <div class="setting">
+              <label class="setting-text" for="memory">
+                <span class="setting-label">Memory</span>
+                <span id="memory-help" class="setting-help"></span>
+              </label>
+              <select id="memory"></select>
+            </div>
+            <div class="setting">
+              <span class="setting-text">
+                <span class="setting-label">Java</span>
+                <span id="java-help" class="setting-help"></span>
+              </span>
+              <span class="setting-actions">
+                <button type="button" id="java-auto" class="quiet" hidden>Use automatic</button>
+                <button type="button" id="java-pick">Choose java.exe</button>
+              </span>
+            </div>
+          </section>
+
+          <section class="settings-group" aria-labelledby="about-heading">
+            <h3 id="about-heading">About</h3>
+            <div class="setting">
+              <span class="setting-text">
+                <span id="about-version" class="setting-label">Hojicha</span>
+                <span id="update-help" class="setting-help"></span>
+              </span>
+              <span class="setting-actions">
+                <button type="button" id="update-restart" class="primary" hidden>Restart to update</button>
+                <button type="button" id="update-check">Check for updates</button>
+              </span>
+            </div>
+            <div class="setting">
+              <span class="setting-text">
+                <span class="setting-label">Launcher folder</span>
+                <span class="setting-help">Instances, servers, settings and downloads.</span>
+              </span>
+              <button type="button" id="open-launcher-folder">Open folder</button>
+            </div>
+            <div class="setting">
+              <span class="setting-text">
+                <span class="setting-label">Source code and releases</span>
+                <span class="setting-help">Hojicha is open source, under the MIT license.</span>
+              </span>
+              <button type="button" id="open-github">Open GitHub</button>
+            </div>
+          </section>
+          <p id="app-settings-message" class="save-message" role="status"></p>
+          <p class="disclaimer">Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.</p>
+        </div>
       </div>
     </section>
 

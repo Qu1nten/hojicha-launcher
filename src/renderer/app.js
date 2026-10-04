@@ -22,10 +22,13 @@ const state = {
   serverStatus: {}, // id -> { state, text }
   serverLogs: {},   // id -> string[]
   tab: 'mods',
+  serverTab: 'console',
   status: {}, // id -> { state, text, progress }
   logs: {},   // id -> string[]
   search: { query: '', type: 'mod', offset: 0, total: 0, done: false },
   versions: null,
+  mods: { id: null, list: [], filter: '', busy: false }, // the Mods tab's list, for the instance it was loaded for
+  modUpdates: {}, // instance id -> { at, updates: file -> { versionId, versionNumber } }, or { pending: true }
 };
 
 // ---------- Helpers ----------
@@ -173,6 +176,7 @@ function renderSidebar() {
     item.onclick = () => selectServer(server.id);
     return item;
   }));
+  $('#open-settings').classList.toggle('active', state.view === 'settings');
   renderActivity();
 }
 
@@ -257,22 +261,123 @@ function renderUpdate() {
   const playing = state.instances.some((inst) => isBusy(inst.id));
   install.disabled = playing;
   install.title = playing ? 'Close the game first' : `Restart to install Hojicha ${update.version}`;
+
+  // The same, in Settings > About.
+  const check = $('#update-check');
+  check.disabled = !appInfo.packaged || update.state !== 'none' || check.textContent === 'Checking';
+  $('#update-restart').hidden = update.state !== 'ready';
+  $('#update-restart').disabled = playing;
+  $('#update-restart').title = install.title;
+  $('#update-help').textContent = !appInfo.packaged ? 'Updates are off while Hojicha runs from source.'
+    : update.state === 'downloading' ? `Downloading ${update.version ?? 'an update'}: ${Math.round((update.progress ?? 0) * 100)}%`
+      : update.state === 'ready' ? `${update.version} is ready. It installs when you restart, or when you close Hojicha.`
+        : updateMessage || 'Hojicha looks for updates when it starts and every 4 hours.';
 }
 
 function renderMain() {
-  const showServer = state.view === 'server' && currentServer();
-  const showInstance = !showServer && current();
-  $('#empty').hidden = Boolean(showServer || showInstance);
+  const showSettings = state.view === 'settings';
+  const showServer = !showSettings && state.view === 'server' && currentServer();
+  const showInstance = !showSettings && !showServer && current();
+  $('#empty').hidden = Boolean(showSettings || showServer || showInstance);
+  $('#settings-view').hidden = !showSettings;
   $('#server-view').hidden = !showServer;
   $('#instance-view').hidden = !showInstance;
+  if (showSettings) renderSettings();
   if (showServer) renderServer();
   if (showInstance) renderInstance();
+  remember();
 }
+
+// ---------- Back and forward ----------
+
+// Where you've been: an instance or server, and its tab. The mouse's back and forward buttons (and Alt+Left and
+// Alt+Right) step through it like a browser. Places deleted since are skipped.
+const nav = { stack: [], index: -1, moving: false, lastStep: 0 };
+const MAX_HISTORY = 50;
+
+function here() {
+  if (state.view === 'settings') return { view: 'settings', id: '', tab: '' };
+  if (state.view === 'server' && currentServer()) return { view: 'server', id: state.selectedServer, tab: state.serverTab };
+  if (current()) return { view: 'instance', id: state.selected, tab: state.tab };
+  return null;
+}
+
+function samePlace(a, b) {
+  return Boolean(a && b) && a.view === b.view && a.id === b.id && a.tab === b.tab;
+}
+
+function remember() {
+  if (nav.moving) return;
+  const place = here();
+  if (!place || samePlace(place, nav.stack[nav.index])) return;
+  nav.stack.splice(nav.index + 1, Infinity, place); // a new place drops the forward history, as in a browser
+  if (nav.stack.length > MAX_HISTORY) nav.stack.shift();
+  nav.index = nav.stack.length - 1;
+}
+
+// Goes to a remembered place. Returns false if unsaved changes kept us where we were.
+function goTo(place) {
+  nav.moving = true;
+  try {
+    if (place.view === 'settings') {
+      openSettings();
+    } else if (place.view === 'server') {
+      selectServer(place.id);
+      if (state.view === 'server' && state.selectedServer === place.id) showServerTab(place.tab);
+    } else {
+      const switching = !(state.view === 'instance' && state.selected === place.id);
+      const tab = state.tab;
+      if (switching) state.tab = place.tab; // the instance opens straight on its tab
+      selectInstance(place.id);
+      if (state.view !== 'instance' || state.selected !== place.id) state.tab = tab;
+      else if (state.tab !== place.tab) showTab(place.tab);
+    }
+  } finally {
+    nav.moving = false;
+  }
+  return samePlace(here(), place);
+}
+
+function stepHistory(direction) {
+  // One press can arrive twice (a mouse event and a Windows app command): take the first.
+  if (Date.now() - nav.lastStep < 80) return;
+  nav.lastStep = Date.now();
+  if (document.querySelector('dialog[open]')) return;
+  for (let i = nav.index + direction; i >= 0 && i < nav.stack.length; i += direction) {
+    const place = nav.stack[i];
+    const exists = place.view === 'settings' ? true
+      : place.view === 'server' ? state.servers.some((s) => s.id === place.id) : state.instances.some((inst) => inst.id === place.id);
+    if (!exists) continue;
+    if (goTo(place)) nav.index = i;
+    return;
+  }
+}
+
+// Mouse buttons 4 (back) and 5 (forward).
+document.addEventListener('mouseup', (event) => {
+  if (event.button !== 3 && event.button !== 4) return;
+  event.preventDefault();
+  stepHistory(event.button === 3 ? -1 : 1);
+});
+document.addEventListener('keydown', (event) => {
+  if (!event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  event.preventDefault();
+  stepHistory(event.key === 'ArrowLeft' ? -1 : 1);
+});
+api.onNavigate((direction) => stepHistory(direction === 'back' ? -1 : 1));
 
 // The installed mods changed: Browse reloads (keeping the search text) the next time it is shown,
 // so its "Installed" labels are never stale.
 function invalidateSearch() {
   state.search.done = false;
+}
+
+// The instance's mods changed (installed, removed, another version): Browse's "Installed" labels and the update
+// check are out of date.
+function modsChanged(id) {
+  invalidateSearch();
+  delete state.modUpdates[id];
 }
 
 // Forget the previous instance's results; the Browse tab loads fresh ones the next time it is shown.
@@ -443,6 +548,8 @@ function renderStatus() {
   play.disabled = isBusy(inst.id);
   $('#delete-instance').disabled = isBusy(inst.id);
   if (state.tab === 'sync') renderSync();
+  // The mod switches and update buttons lock while the game is prepared or running.
+  if (state.tab === 'mods' && state.mods.id === inst.id && state.mods.busy !== isBusy(inst.id)) renderMods();
 }
 
 // ---------- Tabs ----------
@@ -459,48 +566,181 @@ function showTab(tab) {
   if (tab === 'browse' && !state.search.done && !state.search.loading) runSearch(false); // show popular projects straight away
   if (tab === 'sync') renderSync();
   if (tab === 'log') renderLog();
+  remember();
+}
+
+// Mod versions repeat what the instance already says ("mc1.21.11-0.21.4-fabric", "0.141.6+1.21.11"): keep the
+// mod's own part ("0.21.4", "0.141.6"). The full version stays in the tooltip and the version picker.
+const LOADER_WORDS = /^(fabric|quilt|forge|neoforge)$/i;
+function shortVersion(version, inst) {
+  const game = inst.gameVersion.toLowerCase();
+  const parts = version.split(/([-+])/); // parts and the - or + before each, so what's kept keeps its own separators
+  let short = '';
+  for (let i = 0; i < parts.length; i += 2) {
+    const p = parts[i].toLowerCase();
+    if (!p || LOADER_WORDS.test(p) || p === game || p === `mc${game}`) continue;
+    short += (short ? parts[i - 1] : '') + parts[i];
+  }
+  return short || version;
+}
+
+function plural(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`;
 }
 
 async function loadMods() {
   const inst = current();
+  if (state.mods.id !== inst.id) {
+    state.mods = { id: inst.id, list: [], filter: '', busy: isBusy(inst.id) };
+    $('#mod-filter').value = '';
+  }
+  if (inst.loader !== 'vanilla') {
+    const list = await api.listMods(inst.id);
+    if (current()?.id !== inst.id) return; // another instance was picked meanwhile
+    state.mods.list = list;
+    checkModUpdates(inst);
+  }
+  renderMods();
+}
+
+// Looks for newer versions at most every ten minutes per instance, or after its mods change.
+function checkModUpdates(inst) {
+  const known = state.modUpdates[inst.id];
+  if (known?.pending || (known && Date.now() - known.at < 10 * 60 * 1000)) return;
+  if (!state.mods.list.some((m) => m.fromModrinth)) return;
+  state.modUpdates[inst.id] = { pending: true };
+  api.checkModUpdates(inst.id)
+    .then((updates) => { state.modUpdates[inst.id] = { at: Date.now(), updates }; })
+    .catch(() => { state.modUpdates[inst.id] = { at: Date.now(), updates: {} }; }) // offline: just no update marks
+    .then(() => { if (state.tab === 'mods' && current()?.id === inst.id) renderMods(); });
+}
+
+function renderMods() {
+  const inst = current();
   const list = $('#mod-list');
+  const bar = $('#mods-bar');
+  state.mods.busy = isBusy(inst.id);
   if (inst.loader === 'vanilla') {
+    bar.hidden = true;
     list.replaceChildren(emptyRow("This instance has no mod loader, so it can't use mods. Create a Fabric instance to add mods."));
     return;
   }
-  const mods = await api.listMods(inst.id);
+  const mods = state.mods.list;
   if (!mods.length) {
+    bar.hidden = true;
     const browse = el('button', { className: 'primary', textContent: 'Browse Modrinth' });
     browse.onclick = () => showTab('browse');
     list.replaceChildren(emptyRow('No mods yet.', browse));
     return;
   }
-  list.replaceChildren(...mods.map((mod) => {
-    const remove = el('button', { className: 'quiet danger', textContent: 'Remove' });
-    remove.onclick = async () => {
-      await api.removeMod(inst.id, mod.file);
-      invalidateSearch();
-      loadMods();
-    };
-    let version;
-    if (mod.fromModrinth) {
-      version = el('button', {
-        className: 'version-button',
-        textContent: mod.versionNumber || 'Unknown version',
-        title: 'Change version',
-        ariaLabel: `Change version of ${mod.title}, now ${mod.versionNumber}`,
-      });
-      version.onclick = () => openVersionPicker(inst, mod);
-    } else {
-      version = el('span', { className: 'version', textContent: 'Added by hand' });
+
+  const updates = state.modUpdates[inst.id]?.updates || {};
+  const query = state.mods.filter.trim().toLowerCase();
+  const shown = query ? mods.filter((m) => `${m.title} ${m.file}`.toLowerCase().includes(query)) : mods;
+  const off = mods.filter((m) => !m.enabled).length;
+  const updatable = mods.filter((m) => updates[m.file]);
+
+  bar.hidden = false;
+  $('#mod-count').textContent = [
+    query ? `${shown.length} of ${plural(mods.length, 'mod', 'mods')}` : plural(mods.length, 'mod', 'mods'),
+    off ? `${off} switched off` : '',
+  ].filter(Boolean).join(', ');
+  const updateAll = $('#mods-update-all');
+  updateAll.hidden = updatable.length < 2;
+  updateAll.textContent = `Update all ${updatable.length}`;
+  updateAll.disabled = state.mods.busy;
+
+  list.replaceChildren(...(shown.length
+    ? shown.map((mod) => modRow(inst, mod, updates[mod.file]))
+    : [emptyRow(`No mods match "${state.mods.filter.trim()}".`)]));
+}
+
+function modRow(inst, mod, update) {
+  const busy = state.mods.busy;
+
+  let version;
+  if (mod.fromModrinth) {
+    version = el('button', {
+      className: 'version-button',
+      textContent: mod.versionNumber ? shortVersion(mod.versionNumber, inst) : 'Unknown',
+      title: `Version ${mod.versionNumber || 'unknown'}. Click to change it.`,
+      ariaLabel: `Change version of ${mod.title}, now ${mod.versionNumber}`,
+    });
+    version.onclick = () => openVersionPicker(inst, mod);
+  } else {
+    version = el('span', { className: 'version', textContent: 'Added by hand' });
+  }
+
+  let updateButton = null;
+  if (update) {
+    updateButton = el('button', {
+      className: 'mod-update',
+      textContent: `Update to ${shortVersion(update.versionNumber, inst)}`,
+      title: `Update to ${update.versionNumber}`,
+      disabled: busy,
+    });
+    updateButton.onclick = () => updateMods(inst, [mod]);
+  }
+
+  const toggle = el('input', {
+    type: 'checkbox',
+    className: 'switch',
+    checked: mod.enabled,
+    disabled: busy,
+    title: mod.enabled ? 'On: the game loads this mod' : 'Off: the game skips this mod',
+    ariaLabel: `Load ${mod.title}`,
+  });
+  toggle.onchange = async () => {
+    toggle.disabled = true;
+    try {
+      mod.file = await api.setModEnabled(inst.id, mod.file, toggle.checked);
+      mod.enabled = toggle.checked;
+    } catch (err) {
+      state.status[inst.id] = { state: 'error', text: errorText(err) };
+      renderStatus();
     }
-    return el('li', { title: mod.file }, [
-      thumb(mod.iconUrl),
-      el('div', { className: 'info' }, [el('div', { className: 'title', textContent: mod.title })]),
-      version,
-      remove,
-    ]);
-  }));
+    renderMods();
+  };
+
+  const remove = el('button', { className: 'quiet danger mod-remove', textContent: 'Remove', ariaLabel: `Remove ${mod.title}` });
+  remove.onclick = async () => {
+    await api.removeMod(inst.id, mod.file);
+    modsChanged(inst.id);
+    loadMods();
+  };
+
+  return el('li', { className: `mod-row${mod.enabled ? '' : ' off'}`, title: mod.file }, [
+    thumb(mod.iconUrl),
+    el('div', { className: 'info' }, [el('div', { className: 'title', textContent: mod.title })]),
+    updateButton,
+    version,
+    toggle,
+    remove,
+  ]);
+}
+
+// Updates the given mods one by one to the versions the update check found.
+async function updateMods(inst, mods) {
+  const updates = state.modUpdates[inst.id]?.updates || {};
+  const buttons = [...document.querySelectorAll('#mod-list .mod-update, #mods-update-all')];
+  for (const button of buttons) button.disabled = true;
+  let done = 0;
+  try {
+    for (const mod of mods) {
+      if (mods.length > 1) $('#mods-update-all').textContent = `Updating ${done + 1} of ${mods.length}`;
+      await api.setModVersion(inst.id, mod.file, updates[mod.file].versionId);
+      done++;
+    }
+    state.status[inst.id] = {
+      state: 'idle',
+      text: mods.length === 1 ? `${mods[0].title} is now on version ${updates[mods[0].file].versionNumber}.` : `Updated ${mods.length} mods.`,
+    };
+  } catch (err) {
+    state.status[inst.id] = { state: 'error', text: done ? `Updated ${done} of ${mods.length} mods, then: ${errorText(err)}` : errorText(err) };
+  }
+  modsChanged(inst.id);
+  renderStatus();
+  await loadMods();
 }
 
 // ---------- Version picker ----------
@@ -542,7 +782,7 @@ async function openVersionPicker(inst, mod) {
         errorEl.textContent = '';
         try {
           const result = await api.setModVersion(inst.id, mod.file, v.id);
-          invalidateSearch(); // a new version can pull in extra dependencies
+          modsChanged(inst.id); // a new version can pull in extra dependencies
           $('#versions-dialog').close();
           await loadMods();
           state.status[inst.id] = { state: 'idle', text: `${result.title} is now on version ${result.versionNumber}.` };
@@ -660,7 +900,7 @@ function searchRow(inst, hit, type) {
       try {
         Object.assign(inst, await api.install(inst.id, hit.projectId, type));
         action.replaceWith(el('span', { className: 'installed', textContent: 'Installed' }));
-        invalidateSearch(); // dependencies may have come along: their rows update when Browse is next shown
+        modsChanged(inst.id); // dependencies may have come along: their rows update when Browse is next shown
       } catch (err) {
         action.disabled = false;
         action.textContent = 'Install';
@@ -923,6 +1163,7 @@ function showServerTab(tab) {
   if (tab === 'console') renderServerLog(true);
   if (tab === 'settings') loadSettings();
   if (tab === 'files') loadFiles();
+  remember();
 }
 for (const button of document.querySelectorAll('[data-srv-tab]')) button.onclick = () => showServerTab(button.dataset.srvTab);
 
@@ -1482,7 +1723,66 @@ async function setIcon(name) {
 
 // ---------- Settings ----------
 
-// Hojicha (dark) or matcha (light). Switches at once; main.js saves it and recolours the window buttons.
+// The Settings page (gear in the sidebar) and each instance's Settings tab.
+let appInfo = { version: '', packaged: false, totalMemoryMb: 0 };
+let appSettings = { memoryMb: 4096, javaPath: '', theme: 'hojicha' };
+let updateMessage = ''; // the answer to the last "Check for updates"
+
+function openSettings() {
+  if (state.view === 'server' && !confirmDiscard()) return;
+  state.view = 'settings';
+  renderSidebar();
+  renderMain();
+}
+
+function showAppMessage(text, isError = false) {
+  const message = $('#app-settings-message');
+  message.textContent = text;
+  message.className = `save-message${isError ? ' error' : ''}`;
+}
+
+const gb = (mb) => `${Number((mb / 1024).toFixed(1))} GB`;
+
+// Memory choices in whole steps up to what the PC has, plus the saved value if it's an odd one.
+function memoryOptions(select, currentMb, defaultLabel) {
+  const steps = [2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32].map((n) => n * 1024)
+    .filter((mb) => !appInfo.totalMemoryMb || mb <= appInfo.totalMemoryMb);
+  if (currentMb && !steps.includes(currentMb)) steps.push(currentMb);
+  steps.sort((a, b) => a - b);
+  select.replaceChildren(
+    ...(defaultLabel ? [el('option', { value: '', textContent: defaultLabel })] : []),
+    ...steps.map((mb) => el('option', { value: String(mb), textContent: gb(mb) })),
+  );
+  select.value = currentMb ? String(currentMb) : '';
+}
+
+function renderSettings() {
+  memoryOptions($('#memory'), appSettings.memoryMb);
+  $('#memory-help').textContent = '4 GB is enough for most games. Big modpacks may need more.';
+
+  const custom = Boolean(appSettings.javaPath);
+  $('#java-help').textContent = custom
+    ? `Using ${appSettings.javaPath}, for every game and server.`
+    : 'Automatic: Hojicha downloads the Java version each Minecraft version needs.';
+  $('#java-auto').hidden = !custom;
+  $('#java-pick').textContent = custom ? 'Choose another' : 'Choose java.exe';
+
+  $('#about-version').textContent = `Hojicha ${appInfo.version}`;
+  renderUpdate();
+}
+
+async function saveAppSettings(patch) {
+  showAppMessage('');
+  try {
+    appSettings = await api.saveSettings(patch);
+  } catch (err) {
+    showAppMessage(errorText(err), true);
+  }
+  renderSettings();
+}
+
+// Hojicha (dark) or matcha (light), in the title bar. Switches at once; main.js saves it and recolours the window
+// buttons.
 function showTheme(theme) {
   document.documentElement.dataset.theme = theme;
   for (const button of document.querySelectorAll('[data-theme-choice]')) {
@@ -1494,22 +1794,63 @@ async function chooseTheme(theme) {
   const before = document.documentElement.dataset.theme;
   if (theme === before) return;
   showTheme(theme);
-  $('#settings-error').textContent = '';
   try {
-    await api.saveSettings({ theme });
-  } catch (err) {
+    appSettings = await api.saveSettings({ theme });
+  } catch {
     showTheme(before);
-    $('#settings-error').textContent = errorText(err);
   }
 }
 
-async function saveSettings() {
-  $('#settings-error').textContent = '';
+// ---------- The instance's ⋯ menu ----------
+
+// Rename, icon, memory, folder and delete: what you do to the instance itself, kept out of the way of playing it.
+function openInstanceMenu() {
+  const inst = current();
+  memoryOptions($('#inst-memory'), inst.memoryMb || null, `Default (${gb(appSettings.memoryMb)})`);
+  $('#inst-menu').hidden = false;
+  $('#inst-more').setAttribute('aria-expanded', 'true');
+  $('#inst-menu [role="menuitem"]').focus();
+}
+
+function closeInstanceMenu(returnFocus = false) {
+  if ($('#inst-menu').hidden) return;
+  $('#inst-menu').hidden = true;
+  $('#inst-more').setAttribute('aria-expanded', 'false');
+  if (returnFocus) $('#inst-more').focus();
+}
+
+async function updateInstance(patch) {
+  const inst = current();
   try {
-    await api.saveSettings({ memoryMb: Number($('#memory').value) });
+    Object.assign(inst, await api.updateInstance(inst.id, patch));
+    $('#inst-name').textContent = inst.name;
+    renderSidebar();
   } catch (err) {
-    $('#settings-error').textContent = errorText(err);
+    if (!isBusy(inst.id)) {
+      state.status[inst.id] = { state: 'error', text: errorText(err) };
+      renderStatus();
+    }
   }
+}
+
+// Renaming happens on the name itself: it turns into a text box. Enter or clicking away saves, Escape cancels.
+function startRename() {
+  closeInstanceMenu();
+  const input = $('#inst-rename');
+  input.value = current().name;
+  $('#inst-name').hidden = true;
+  input.hidden = false;
+  input.focus();
+  input.select();
+}
+
+async function finishRename(save) {
+  const input = $('#inst-rename');
+  if (input.hidden) return;
+  input.hidden = true;
+  $('#inst-name').hidden = false;
+  const name = input.value.trim();
+  if (save && name && name !== current().name) await updateInstance({ name });
 }
 
 // ---------- Accounts ----------
@@ -1725,6 +2066,17 @@ $('#delete-instance').onclick = async () => {
   }
 };
 
+$('#mod-filter').oninput = () => {
+  state.mods.filter = $('#mod-filter').value;
+  renderMods();
+};
+
+$('#mods-update-all').onclick = () => {
+  const inst = current();
+  const updates = state.modUpdates[inst.id]?.updates || {};
+  updateMods(inst, state.mods.list.filter((m) => updates[m.file]));
+};
+
 $('#search-form').onsubmit = (event) => {
   event.preventDefault();
   clearTimeout(searchTimer);
@@ -1758,11 +2110,68 @@ $('#pack-query').oninput = () => {
 };
 $('#pack-more').onclick = () => runPackSearch(true);
 
-$('#memory').onchange = saveSettings;
+$('#open-settings').onclick = openSettings;
 for (const button of document.querySelectorAll('[data-theme-choice]')) {
   button.onclick = () => chooseTheme(button.dataset.themeChoice);
 }
 showTheme(document.documentElement.dataset.theme); // set by theme.js; marks the right button straight away
+$('#memory').onchange = () => saveAppSettings({ memoryMb: Number($('#memory').value) });
+$('#java-auto').onclick = () => saveAppSettings({ javaPath: '' });
+$('#java-pick').onclick = async () => {
+  showAppMessage('');
+  try {
+    appSettings = (await api.pickJava()) || appSettings;
+  } catch (err) {
+    showAppMessage(errorText(err), true);
+  }
+  renderSettings();
+};
+$('#update-check').onclick = async () => {
+  const button = $('#update-check');
+  button.disabled = true;
+  button.textContent = 'Checking';
+  try {
+    update = await api.checkForUpdate();
+    updateMessage = update.state === 'none' ? `You have the newest version (checked ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).` : '';
+  } catch {
+    updateMessage = "Couldn't reach GitHub to check. Try again later.";
+  }
+  button.textContent = 'Check for updates';
+  renderUpdate();
+};
+$('#update-restart').onclick = () => $('#update-install').click();
+$('#open-launcher-folder').onclick = () => api.openLauncherFolder();
+$('#open-github').onclick = () => api.openExternal('https://github.com/Qu1nten/hojicha-launcher');
+$('#inst-more').onclick = () => ($('#inst-menu').hidden ? openInstanceMenu() : closeInstanceMenu());
+$('#menu-rename').onclick = startRename;
+$('#inst-name').ondblclick = startRename;
+$('#menu-icon').onclick = () => {
+  closeInstanceMenu();
+  openIconPicker('instance', current());
+};
+$('#inst-memory').onchange = () => updateInstance({ memoryMb: $('#inst-memory').value ? Number($('#inst-memory').value) : null });
+$('#inst-rename').onkeydown = (event) => {
+  if (event.key === 'Enter') finishRename(true);
+  if (event.key === 'Escape') finishRename(false);
+};
+$('#inst-rename').onblur = () => finishRename(true);
+// The menu closes on a click outside it, on Escape, and after any of its actions except the memory choice.
+document.addEventListener('mousedown', (event) => {
+  if (!event.target.closest('.more-wrap')) closeInstanceMenu();
+});
+$('#inst-menu').addEventListener('click', (event) => {
+  if (event.target.closest('[role="menuitem"]')) closeInstanceMenu();
+});
+$('#inst-menu').addEventListener('keydown', (event) => {
+  const items = [...$('#inst-menu').querySelectorAll('[role="menuitem"]:not(:disabled), select')];
+  const at = items.indexOf(document.activeElement);
+  if (event.key === 'Escape') closeInstanceMenu(true);
+  if (event.target.tagName === 'SELECT') return; // arrow keys pick the memory there
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    items[(at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+  }
+});
 
 $('#versions-close').onclick = () => $('#versions-dialog').close();
 
@@ -1928,13 +2337,11 @@ $('#srv-command-form').onsubmit = async (event) => {
 };
 
 (async () => {
-  const settings = await api.getSettings();
-  $('#memory').value = settings.memoryMb;
+  [appSettings, appInfo] = await Promise.all([api.getSettings(), api.getAppInfo()]);
   await refreshAccounts();
   api.refreshProfiles().then(renderAccounts, () => {}); // new skins show up once Mojang answers
   await refreshInstances();
   await refreshServers();
-  $('#app-version').textContent = `v${await api.getVersion()}`;
   playitState = await api.playitStatus();
   for (const server of state.servers) serverOnline[server.id] = await api.serverOnline(server.id);
   if (state.view === 'server') renderMain();

@@ -66,4 +66,4 @@ async function runPool(items, limit, worker, onProgress) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
 }
 
-module.exports = { LAUNCHER_VERSION, USER_AGENT, fetchJson, downloadFile, runPool };
+module.exports = { LAUNCHER_VERSION, USER_AGENT, fetchJson, hashFile, downloadFile, runPool };
