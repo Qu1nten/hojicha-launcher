@@ -54,7 +54,7 @@
 | Service | What for |
 | --- | --- |
 | Microsoft, Xbox Live, Minecraft services | Signing in, checking ownership, your skin |
-| Mojang | Game versions, libraries, assets and Java runtimes |
+| Mojang | Game versions, libraries, assets and Java runtimes, and your current skin and name at startup |
 | Modrinth | Searching and downloading mods, resource packs and shaders |
 | Fabric | Fabric loader versions, and Fabric servers |
 | PaperMC, PurpurMC | The server jar, only when you create a Paper or Purpur server |
@@ -72,6 +72,9 @@ can connect, in offline mode so your offline accounts can join. It writes those 
 records your original values and puts them back when the server stops (or the next time it opens, if it was closed
 while the server ran), so your own start script keeps working. The selected account is made operator when the
 server starts.
+
+The **Settings** tab edits `server.properties` (except the values Hojicha manages), and the **Files** tab edits the
+server's other config files as text. Both offer a restart after saving.
 
 ### Online play
 
@@ -163,6 +166,7 @@ src/core/modrinth.js      Modrinth search/install/dependencies/versions
 src/core/sync.js          instance syncing
 src/core/instances.js     instance storage, play time
 src/core/servers.js       local servers: creating, starting, server.properties, whitelist
+src/core/serverConfig.js  the Settings and Files tabs: server.properties and config files
 src/core/serverTypes.js   Paper, Purpur and Fabric server downloads
 src/core/playit.js        online play: playit.gg linking, agent and tunnel
 src/core/storage.js       where data lives, moving data from older versions

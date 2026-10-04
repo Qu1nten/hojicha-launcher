@@ -1,7 +1,7 @@
 {
   "name": "hojicha-launcher",
   "productName": "Hojicha Launcher",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "private": true,
   "description": "Minecraft: Java Edition launcher with instances, Modrinth downloads, instance syncing and local servers",
   "author": "Quinten",
