@@ -5,6 +5,7 @@ const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
 contextBridge.exposeInMainWorld('launcher', {
   getSettings: () => invoke('settings:get'),
   saveSettings: (patch) => invoke('settings:save', patch),
+  setPopupOpen: (open) => invoke('window:popup', open),
   listVersions: () => invoke('versions:list'),
 
   listAccounts: () => invoke('accounts:list'),
@@ -22,6 +23,9 @@ contextBridge.exposeInMainWorld('launcher', {
   deleteInstance: (id) => invoke('instances:delete', id),
   openFolder: (id) => invoke('instances:openFolder', id),
   setSync: (id, item, enabled) => invoke('instances:setSync', id, item, enabled),
+  setInstanceIcon: (id, name) => invoke('instances:setIcon', id, name),
+  setServerIcon: (id, name) => invoke('servers:setIcon', id, name),
+  listIcons: () => invoke('icons:list'),
   launch: (id) => invoke('instances:launch', id),
 
   listMods: (id) => invoke('mods:list', id),
@@ -31,7 +35,10 @@ contextBridge.exposeInMainWorld('launcher', {
   search: (id, query, type, offset) => invoke('modrinth:search', id, query, type, offset),
   install: (id, projectId, type) => invoke('modrinth:install', id, projectId, type),
   searchModpacks: (query, offset) => invoke('modpacks:search', query, offset),
-  installModpack: (projectId, name) => invoke('modpacks:install', projectId, name),
+  modpackGameVersions: (projectId) => invoke('modpacks:gameVersions', projectId),
+  installModpack: (projectId, name, versionId) => invoke('modpacks:install', projectId, name, versionId),
+  pickModpackFile: () => invoke('modpacks:pickFile'),
+  installModpackFile: (name) => invoke('modpacks:installFile', name),
   openExternal: (url) => invoke('openExternal', url),
 
   listServers: () => invoke('servers:list'),

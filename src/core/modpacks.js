@@ -15,12 +15,27 @@ const ALLOWED_HOSTS = ['cdn.modrinth.com', 'github.com', 'raw.githubusercontent.
 // Folders the index's mod files may also land in, tracked like Browse installs so the Mods tab knows them.
 const TRACKED = ['mods/', 'resourcepacks/', 'shaderpacks/'];
 
-// Newest version of the pack that runs on Fabric, preferring full releases over betas.
-async function pickVersion(projectId) {
+function fabricVersions(projectId) {
   const params = new URLSearchParams({ loaders: JSON.stringify(['fabric']) });
-  const versions = await fetchJson(`${API}/project/${encodeURIComponent(projectId)}/version?${params}`);
-  if (!versions.length) throw new Error("This modpack has no Fabric version, and Fabric is the only mod loader Hojicha supports.");
-  return versions.find((v) => v.version_type === 'release') || versions[0];
+  return fetchJson(`${API}/project/${encodeURIComponent(projectId)}/version?${params}`);
+}
+
+// The Minecraft versions a pack can be installed for, newest first, each with the pack version that brings it
+// (the newest full release for it, else the newest beta).
+async function listGameVersions(projectId) {
+  const [versions, known] = await Promise.all([fabricVersions(projectId), minecraft.listGameVersions()]);
+  const order = new Map(known.map((v, i) => [v.id, i])); // Mojang lists newest first
+  const picks = new Map();
+  for (const v of versions) { // newest first
+    for (const game of v.game_versions) {
+      const pick = picks.get(game);
+      if (!pick || (pick.type !== 'release' && v.version_type === 'release')) {
+        picks.set(game, { gameVersion: game, versionId: v.id, versionNumber: v.version_number, type: v.version_type });
+      }
+    }
+  }
+  if (!picks.size) throw new Error("This modpack has no Fabric version, and Fabric is the only mod loader Hojicha supports.");
+  return [...picks.values()].sort((a, b) => (order.get(a.gameVersion) ?? Infinity) - (order.get(b.gameVersion) ?? Infinity));
 }
 
 // Resolves a path from the pack inside gameDir, refusing anything that would land outside it.
@@ -42,9 +57,17 @@ function allowedUrl(urls) {
   });
 }
 
+function openPack(file) {
+  try {
+    return new AdmZip(file);
+  } catch {
+    throw new Error("That file isn't a modpack. Choose a Modrinth .mrpack file.");
+  }
+}
+
 function readIndex(zip) {
   const entry = zip.getEntry('modrinth.index.json');
-  if (!entry) throw new Error('This modpack file has no modrinth.index.json.');
+  if (!entry) throw new Error("That file isn't a Modrinth modpack (it has no modrinth.index.json).");
   const index = JSON.parse(entry.getData().toString('utf8'));
   const deps = index.dependencies || {};
   const other = ['forge', 'neoforge', 'quilt-loader'].find((loader) => deps[loader]);
@@ -55,8 +78,28 @@ function readIndex(zip) {
 
 // Creates the instance from the pack's metadata, before anything big is downloaded.
 // An empty name means the pack's own.
-async function createInstance(projectId, name = '') {
-  const [project, version] = await Promise.all([fetchJson(`${API}/project/${encodeURIComponent(projectId)}`), pickVersion(projectId)]);
+async function makeInstance(zip, name, modpack) {
+  const index = readIndex(zip);
+  const instance = instances.create({
+    name: name.trim() || modpack.title,
+    gameVersion: index.dependencies.minecraft,
+    loader: 'fabric',
+    loaderVersion: index.dependencies['fabric-loader'] || await minecraft.latestFabricLoader(index.dependencies.minecraft),
+  });
+  // The pack ships its own mod settings: keep them out of the shared config folder.
+  instance.sync = { config: false };
+  instance.modpack = modpack;
+  instances.save(instance);
+  return { instance, zip, index };
+}
+
+// From Modrinth: versionId picks the pack version (see listGameVersions); without it, the newest one.
+async function createInstance(projectId, name = '', versionId = null) {
+  const [project, versions] = await Promise.all([fetchJson(`${API}/project/${encodeURIComponent(projectId)}`), fabricVersions(projectId)]);
+  const version = versionId
+    ? versions.find((v) => v.id === versionId)
+    : versions.find((v) => v.version_type === 'release') || versions[0];
+  if (!version) throw new Error("This modpack has no Fabric version, and Fabric is the only mod loader Hojicha supports.");
   const file = version.files.find((f) => f.primary) || version.files[0];
   const tmp = path.join(os.tmpdir(), `hojicha-${version.id}.mrpack`);
   await downloadFile(file.url, tmp, { sha1: file.hashes.sha1, size: file.size });
@@ -66,18 +109,25 @@ async function createInstance(projectId, name = '') {
   } finally {
     fs.rmSync(tmp, { force: true }); // AdmZip has read it all into memory
   }
-  const index = readIndex(zip);
-  const instance = instances.create({
-    name: name.trim() || project.title,
+  return makeInstance(zip, name, { projectId, versionId: version.id, title: project.title, versionNumber: version.version_number, iconUrl: project.icon_url });
+}
+
+// What an .mrpack file on disk would install, for the dialog to show before creating anything.
+function describeFile(file) {
+  const index = readIndex(openPack(file));
+  return {
+    title: index.name || path.basename(file, path.extname(file)),
+    versionNumber: index.versionId || '',
     gameVersion: index.dependencies.minecraft,
-    loader: 'fabric',
-    loaderVersion: index.dependencies['fabric-loader'] || await minecraft.latestFabricLoader(index.dependencies.minecraft),
-  });
-  // The pack ships its own mod settings: keep them out of the shared config folder.
-  instance.sync = { config: false };
-  instance.modpack = { projectId, versionId: version.id, title: project.title, versionNumber: version.version_number, iconUrl: project.icon_url };
-  instances.save(instance);
-  return { instance, zip, index };
+    mods: (index.files || []).filter((f) => f.env?.client !== 'unsupported').length,
+  };
+}
+
+function createInstanceFromFile(file, name = '') {
+  const zip = openPack(file);
+  const index = readIndex(zip);
+  const title = index.name || path.basename(file, path.extname(file));
+  return makeInstance(zip, name, { projectId: null, versionId: null, title, versionNumber: index.versionId || '', iconUrl: null });
 }
 
 // Downloads the pack's files and copies its overrides into the new instance.
@@ -134,4 +184,4 @@ async function trackContent(instance, files) {
   }
 }
 
-module.exports = { createInstance, fillInstance };
+module.exports = { listGameVersions, createInstance, describeFile, createInstanceFromFile, fillInstance };

@@ -9,6 +9,7 @@ const minecraft = require('./core/minecraft');
 const modrinth = require('./core/modrinth');
 const modpacks = require('./core/modpacks');
 const sync = require('./core/sync');
+const icons = require('./core/icons');
 const servers = require('./core/servers');
 const serverTypes = require('./core/serverTypes');
 const serverConfig = require('./core/serverConfig');
@@ -51,8 +52,37 @@ const running = new Map();
 const send = (channel, data) => {
   if (win && !win.isDestroyed()) win.webContents.send(channel, data);
 };
-// progress (0-1) drives the launch progress bar while an instance is being prepared.
-const status = (id, state, text = '', progress = null) => send('status', { id, state, text, progress });
+// progress (0-1) drives the launch progress in Play while an instance is being prepared. Checking files that are
+// already there reports thousands of steps in a blink, so 'installing' updates go out at most every 80 ms (always
+// ending on the latest one); every other state goes out at once and drops any update still waiting.
+const STATUS_INTERVAL = 80;
+const statusThrottle = new Map(); // id -> { sentAt, timer, pending }
+const status = (id, state, text = '', progress = null) => {
+  const entry = statusThrottle.get(id) || { sentAt: 0, timer: null, pending: null };
+  statusThrottle.set(id, entry);
+  const message = { id, state, text, progress };
+  if (state !== 'installing') {
+    clearTimeout(entry.timer);
+    entry.timer = null;
+    entry.pending = null;
+    entry.sentAt = 0;
+    send('status', message);
+    return;
+  }
+  const wait = entry.sentAt + STATUS_INTERVAL - Date.now();
+  if (wait <= 0 && !entry.timer) {
+    entry.sentAt = Date.now();
+    send('status', message);
+    return;
+  }
+  entry.pending = message;
+  entry.timer ??= setTimeout(() => {
+    entry.timer = null;
+    entry.sentAt = Date.now();
+    if (entry.pending) send('status', entry.pending);
+    entry.pending = null;
+  }, Math.max(0, wait));
+};
 const log = (id, line) => send('log', { id, line });
 
 servers.setHooks({
@@ -112,6 +142,7 @@ async function launch(id, options = {}) {
     const account = await accounts.launchIdentity();
     const report = (text, progress = null) => status(id, 'installing', text, progress);
     const { java, args } = await minecraft.prepare(instance, gameDir, settings.get(), account, report, options);
+    unpackIcons(); // a newer version may bring new items
     sync.beforeLaunch(instance);
 
     log(id, `> Launching ${instance.name} (${instance.gameVersion} ${instance.loader}) as ${account.name}`);
@@ -152,10 +183,32 @@ async function launch(id, options = {}) {
   }
 }
 
+// Item icons for instances and servers (core/icons.js). Unpacking needs a downloaded game version, so a launcher
+// without one shows placeholders until the first game is prepared.
+function unpackIcons() {
+  try {
+    icons.ensure();
+  } catch (err) {
+    console.error('Could not unpack the item icons:', err.message);
+  }
+}
+
+// Anything without an icon yet gets a random item, saved so it stays the same.
+function iconFor(item, save) {
+  if (icons.has(item.icon)) return item.icon;
+  const name = icons.random();
+  if (name) save(name);
+  return name;
+}
+
 function registerIpc() {
   const handle = (channel, fn) => ipcMain.handle(channel, (_event, ...args) => fn(...args));
 
   handle('settings:get', () => settings.get());
+  handle('window:popup', (open) => {
+    popupOpen = Boolean(open);
+    if (win && !win.isDestroyed()) paintTitleBarButtons();
+  });
   handle('settings:save', (patch) => {
     const saved = settings.save(patch);
     if (patch.theme) applyTheme(saved.theme);
@@ -177,7 +230,14 @@ function registerIpc() {
 
   handle('versions:list', () => minecraft.listGameVersions());
 
-  handle('instances:list', () => instances.list().map((i) => ({ ...i, running: running.has(i.id) })));
+  handle('instances:list', () => instances.list().map((i) => {
+    const icon = iconFor(i, (name) => instances.save({ ...instances.get(i.id), icon: name }));
+    return { ...i, icon, iconUrl: icons.url(icon), running: running.has(i.id) };
+  }));
+  handle('instances:setIcon', (id, name) => {
+    if (!icons.has(name)) throw new Error('Unknown icon');
+    return instances.save({ ...instances.get(id), icon: name });
+  });
   handle('instances:create', async ({ name, gameVersion, loader }) => {
     const loaderVersion = loader === 'fabric' ? await minecraft.latestFabricLoader(gameVersion) : null;
     const instance = instances.create({ name: name.trim() || gameVersion, gameVersion, loader, loaderVersion });
@@ -214,11 +274,9 @@ function registerIpc() {
       status(id, running.has(id) ? 'running' : 'idle', running.has(id) ? 'Running' : '');
     }
   });
-  // Makes a new instance from a Modrinth modpack. Returns it straight away; its files download in the background,
-  // reported through its status, and it counts as busy (no Play, Delete or sync changes) until they're in.
-  handle('modpacks:search', (query, offset) => modrinth.searchModpacks(query, offset));
-  handle('modpacks:install', async (projectId, name) => {
-    const pack = await modpacks.createInstance(projectId, name);
+  // Modpacks make a new instance. It's returned straight away; its files download in the background, reported
+  // through its status, and it counts as busy (no Play, Delete or sync changes) until they're in.
+  const installPack = (pack) => {
     const { id } = pack.instance;
     running.set(id, null);
     status(id, 'installing', 'Installing modpack', 0);
@@ -234,9 +292,37 @@ function registerIpc() {
       status(id, ...result);
     })();
     return pack.instance;
+  };
+  handle('modpacks:search', (query, offset) => modrinth.searchModpacks(query, offset));
+  handle('modpacks:gameVersions', (projectId) => modpacks.listGameVersions(projectId));
+  handle('modpacks:install', async (projectId, name, versionId) => installPack(await modpacks.createInstance(projectId, name, versionId)));
+  // The file is chosen here and remembered, so the page can only install the file the player picked.
+  let pickedPack = null;
+  handle('modpacks:pickFile', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Choose a modpack',
+      filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || !result.filePaths.length) return null;
+    const info = modpacks.describeFile(result.filePaths[0]);
+    pickedPack = result.filePaths[0];
+    return info;
+  });
+  handle('modpacks:installFile', async (name) => {
+    if (!pickedPack) throw new Error('Choose a modpack file first.');
+    return installPack(await modpacks.createInstanceFromFile(pickedPack, name));
   });
 
-  handle('servers:list', () => servers.list().map((s) => ({ ...s, running: servers.isRunning(s.id) })));
+  handle('servers:list', () => servers.list().map((s) => {
+    const icon = iconFor(s, (name) => servers.update(s.id, (server) => { server.icon = name; }));
+    return { ...s, icon, iconUrl: icons.url(icon), running: servers.isRunning(s.id) };
+  }));
+  handle('servers:setIcon', (id, name) => {
+    if (!icons.has(name)) throw new Error('Unknown icon');
+    return servers.update(id, (server) => { server.icon = name; });
+  });
+  handle('icons:list', () => icons.list());
   handle('servers:add', async () => {
     const result = await dialog.showOpenDialog(win, { title: 'Choose your server folder', properties: ['openDirectory'] });
     if (result.canceled || !result.filePaths.length) return null;
@@ -321,22 +407,36 @@ const TITLEBAR_HEIGHT = Math.round(52 * ZOOM);
 
 let allowClose = false; // set once running servers have stopped after the player chose to close
 
-// Window colours per theme (keep in step with --roast and --steam-dim in style.css): the background shown before
-// the page paints, and the Windows title bar buttons, which sit on the plain background colour.
+// Window colours per theme (keep in step with --roast, --steam-dim and --backdrop in style.css): the background
+// shown before the page paints, and the Windows title bar buttons, which sit on the plain background colour.
+// Windows draws those buttons outside the page, so a popup's backdrop can't dim them: the dim pair is the same
+// colours under that backdrop, used while a popup is open.
 const THEME_COLORS = {
-  hojicha: { background: '#241913', symbols: '#b09d8d' },
-  matcha: { background: '#eef0d8', symbols: '#575d3a' },
+  hojicha: { background: '#241913', symbols: '#b09d8d', dimBackground: '#160f0b', dimSymbols: '#473d35' },
+  matcha: { background: '#eef0d8', symbols: '#575d3a', dimBackground: '#a8ab93', dimSymbols: '#464b2c' },
 };
+let currentTheme = null;
+let popupOpen = false;
+
+function paintTitleBarButtons() {
+  const colors = THEME_COLORS[currentTheme] || THEME_COLORS.hojicha;
+  win.setTitleBarOverlay({
+    color: popupOpen ? colors.dimBackground : colors.background,
+    symbolColor: popupOpen ? colors.dimSymbols : colors.symbols,
+    height: TITLEBAR_HEIGHT,
+  });
+}
 
 function applyTheme(theme) {
   if (!win || win.isDestroyed()) return;
-  const colors = THEME_COLORS[theme] || THEME_COLORS.hojicha;
-  win.setBackgroundColor(colors.background);
-  win.setTitleBarOverlay({ color: colors.background, symbolColor: colors.symbols, height: TITLEBAR_HEIGHT });
+  currentTheme = theme;
+  win.setBackgroundColor((THEME_COLORS[theme] || THEME_COLORS.hojicha).background);
+  paintTitleBarButtons();
 }
 
 function createWindow() {
   const { theme } = settings.get();
+  currentTheme = theme;
   const colors = THEME_COLORS[theme] || THEME_COLORS.hojicha;
   win = new BrowserWindow({
     width: 1200,
@@ -398,6 +498,7 @@ function startUpdateChecks() {
 app.whenReady().then(() => {
   if (!firstInstance) return;
   sync.relinkAll();
+  unpackIcons();
   if (safeStorage.isEncryptionAvailable()) {
     const cipher = {
       encrypt: (text) => safeStorage.encryptString(text).toString('base64'),

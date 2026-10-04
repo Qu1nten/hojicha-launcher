@@ -19,9 +19,11 @@
   and when you last played it. Hojicha downloads the game, libraries, assets and the matching Java runtime from
   Mojang itself; game files are never redistributed.
 - **Modrinth browser**: search mods, resource packs and shaders filtered to the instance's version and loader.
-- **Modpacks**: New instance → Modpack makes an instance from a Fabric modpack on Modrinth, with everything it needs.
   One click installs the newest compatible version plus its required dependencies, and any installed mod can be
   switched to another version.
+- **Modpacks**: New instance → Start from a modpack makes an instance from a Fabric modpack on Modrinth, on the
+  Minecraft version you pick, with everything it needs. Upload a modpack installs one from an .mrpack file.
+- **Item icons**: every instance and server gets a Minecraft item as its icon; click it to pick another.
 - **Instance syncing**: share worlds, mod settings, resource packs, shader packs, screenshots, options/keybinds and
   the server list between instances. Everything is synced by default; switch items off per instance.
 - **Local servers**: create a Paper, Purpur or Fabric server in a couple of clicks, or add a server folder you
@@ -175,6 +177,7 @@ src/core/modrinth.js      Modrinth search/install/dependencies/versions
 src/core/modpacks.js      installing Modrinth modpacks (.mrpack) as new instances
 src/core/sync.js          instance syncing
 src/core/instances.js     instance storage, play time
+src/core/icons.js         item icons for instances and servers, taken from a downloaded client jar
 src/core/servers.js       local servers: creating, starting, server.properties, whitelist
 src/core/serverConfig.js  the Settings and Files tabs: server.properties and config files
 src/core/serverTypes.js   Paper, Purpur and Fabric server downloads

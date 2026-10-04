@@ -80,13 +80,16 @@
         <div class="header-actions">
           <button id="open-folder" class="quiet">Open folder</button>
           <button id="delete-instance" class="quiet danger">Delete</button>
-          <button id="play" class="play">
-            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path class="fill" d="M5 3.3v9.4a.9.9 0 0 0 1.4.75l7.2-4.7a.9.9 0 0 0 0-1.5L6.4 2.55A.9.9 0 0 0 5 3.3z"/></svg>
-            <span id="play-label">Play</span>
-          </button>
+          <div class="play-wrap">
+            <button id="play" class="play">
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path class="fill" d="M5 3.3v9.4a.9.9 0 0 0 1.4.75l7.2-4.7a.9.9 0 0 0 0-1.5L6.4 2.55A.9.9 0 0 0 5 3.3z"/></svg>
+              <span id="play-label">Play</span>
+              <span class="play-fill" aria-hidden="true"><span id="play-fill-label"></span></span>
+            </button>
+            <p id="play-detail" class="play-detail" role="status"></p>
+          </div>
         </div>
       </header>
-      <div id="roast" class="roast" aria-hidden="true"><div id="roast-fill" class="roast-fill"></div></div>
       <p id="status" class="status" role="status"></p>
 
       <nav class="tabs" aria-label="Instance sections">
@@ -135,14 +138,17 @@
           <button id="srv-open-folder" class="quiet">Open folder</button>
           <button id="srv-remove" class="quiet danger">Remove</button>
           <button id="srv-toggle">Start</button>
+          <button id="srv-join" class="play">
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path class="fill" d="M5 3.3v9.4a.9.9 0 0 0 1.4.75l7.2-4.7a.9.9 0 0 0 0-1.5L6.4 2.55A.9.9 0 0 0 5 3.3z"/></svg>
+            <span id="srv-join-label">Start and join</span>
+          </button>
         </div>
       </header>
-      <p id="srv-status" class="status" role="status"></p>
-
-      <div class="join-row">
-        <label class="join-label" for="srv-instance">Join with</label>
-        <select id="srv-instance"></select>
-        <button id="srv-join" class="play">Start and join</button>
+      <div class="srv-subhead">
+        <p id="srv-status" class="status" role="status"></p>
+        <label class="join-with">with
+          <select id="srv-instance" aria-label="Instance to join with"></select>
+        </label>
       </div>
       <p id="srv-intro" class="intro"></p>
 
@@ -239,39 +245,64 @@
 
   <dialog id="new-dialog">
     <form id="new-form" method="dialog" class="dialog-body">
-      <h2>New instance</h2>
-      <label class="field">Name
-        <input id="new-name" placeholder="My instance" spellcheck="false" autofocus>
-      </label>
-      <fieldset class="field type-picker two">
-        <legend>Start from</legend>
-        <label class="type-option">
-          <input type="radio" name="new-kind" value="blank" checked>
-          <span class="type-name">Blank</span>
-          <span class="type-desc">Pick a version, add mods later</span>
-        </label>
-        <label class="type-option">
-          <input type="radio" name="new-kind" value="modpack">
-          <span class="type-name">Modpack</span>
-          <span class="type-desc">A ready-made Fabric pack from Modrinth</span>
-        </label>
-      </fieldset>
-      <div id="new-blank" class="dialog-section">
-        <label class="field">Minecraft version
-          <select id="new-version"></select>
-        </label>
-        <label class="check"><input id="new-snapshots" type="checkbox"> Show snapshots</label>
-        <label class="field">Mod loader
-          <select id="new-loader">
-            <option value="fabric">Fabric</option>
-            <option value="vanilla">None (vanilla)</option>
-          </select>
-        </label>
-      </div>
-      <div id="new-modpack" class="dialog-section" hidden>
-        <input id="pack-query" placeholder="Search Modrinth modpacks" spellcheck="false" aria-label="Search Modrinth modpacks">
-        <ul id="pack-results" class="rows pack-list" role="listbox" aria-label="Modpacks"></ul>
-        <button type="button" id="pack-more" class="load-more" hidden>Show more modpacks</button>
+      <h2 id="new-title">Create instance</h2>
+      <div class="new-pages">
+        <div id="new-home" class="new-page choices">
+          <button type="button" class="choice" data-step="custom">
+            <span class="choice-icon"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8l5.5 3.1v6.2L8 14.2l-5.5-3.1V4.9z"/><path d="M2.5 4.9L8 8l5.5-3.1M8 8v6.2"/></svg></span>
+            <span class="choice-text">
+              <span class="choice-name">Custom setup</span>
+              <span class="choice-desc">Start from scratch: pick the Minecraft version and mod loader.</span>
+            </span>
+          </button>
+          <button type="button" class="choice" data-step="modpack">
+            <span class="choice-icon"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6 3.2-6 3.2-6-3.2z"/><path d="M2 8.1l6 3.2 6-3.2M2 11l6 3.2 6-3.2"/></svg></span>
+            <span class="choice-text">
+              <span class="choice-name">Start from a modpack</span>
+              <span class="choice-desc">Pick a Fabric modpack on Modrinth and the Minecraft version to play it on.</span>
+            </span>
+          </button>
+          <button type="button" class="choice" data-step="upload">
+            <span class="choice-icon"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10.5V2.5M4.8 5.6L8 2.5l3.2 3.1"/><path d="M2.5 10v2.6c0 .5.4.9.9.9h9.2c.5 0 .9-.4.9-.9V10"/></svg></span>
+            <span class="choice-text">
+              <span class="choice-name">Upload a modpack</span>
+              <span class="choice-desc">Install a modpack from an .mrpack file on your PC.</span>
+            </span>
+          </button>
+        </div>
+        <div id="new-setup" class="new-page" hidden>
+          <label class="field">Name
+            <input id="new-name" placeholder="My instance" spellcheck="false">
+          </label>
+          <div id="new-custom" class="new-section">
+            <label class="field">Minecraft version
+              <select id="new-version"></select>
+            </label>
+            <label class="check"><input id="new-snapshots" type="checkbox"> Show snapshots</label>
+            <label class="field">Mod loader
+              <select id="new-loader">
+                <option value="fabric">Fabric</option>
+                <option value="vanilla">None (vanilla)</option>
+              </select>
+            </label>
+          </div>
+          <div id="new-modpack" class="new-section">
+            <input id="pack-query" placeholder="Search Modrinth modpacks" spellcheck="false" aria-label="Search Modrinth modpacks">
+            <div id="pack-scroll" class="pack-scroll">
+              <ul id="pack-results" class="rows pack-list" role="listbox" aria-label="Modpacks"></ul>
+              <button type="button" id="pack-more" class="load-more" hidden>Show more modpacks</button>
+            </div>
+            <label class="field">Minecraft version
+              <select id="pack-version" disabled><option>Pick a modpack first</option></select>
+            </label>
+          </div>
+          <div id="new-upload" class="new-section">
+            <div class="upload-box">
+              <p id="upload-info" class="hint">No file chosen yet.</p>
+              <button type="button" id="upload-pick">Choose .mrpack file</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div id="new-error" class="error"></div>
       <div class="dialog-actions">
@@ -279,6 +310,19 @@
         <button type="submit" class="primary" id="new-create">Create instance</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="icon-dialog">
+    <div class="dialog-body">
+      <h2 id="icon-title">Choose an icon</h2>
+      <input id="icon-search" placeholder="Search items" spellcheck="false" aria-label="Search items">
+      <div id="icon-grid" class="icon-grid"></div>
+      <div id="icon-error" class="error"></div>
+      <div class="dialog-actions">
+        <button type="button" id="icon-random" class="quiet">Random</button>
+        <button type="button" id="icon-close" class="quiet">Cancel</button>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="server-dialog">

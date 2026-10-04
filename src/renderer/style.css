@@ -169,6 +169,8 @@ button.primary:hover:not(:disabled) { background: var(--liquor-bright); border-c
 
 /* Play: the one loud control in the app. */
 button.play {
+  position: relative;
+  overflow: hidden;
   background: var(--liquor);
   border: none;
   color: var(--on-liquor);
@@ -176,7 +178,7 @@ button.play {
   font-weight: 700;
   padding: 10px 30px;
   border-radius: 999px;
-  min-width: 128px;
+  min-width: 160px; /* fits "Preparing", so the button keeps its width from Play to Playing */
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -370,7 +372,8 @@ input:focus-visible, select:focus-visible { outline: none; }
 .side-list { list-style: none; margin: 0; padding: 0; }
 .side-list li {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   padding: 7px 10px;
   border-radius: 6px;
   cursor: pointer;
@@ -378,8 +381,40 @@ input:focus-visible, select:focus-visible { outline: none; }
 .side-list li:hover { background: var(--kiln-raised); }
 /* The selected item takes the main area's colour, so it reads as connected to it. */
 .side-list li.active { background: var(--roast); }
+.side-text { display: flex; flex-direction: column; min-width: 0; }
 .side-list .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-list .sub { font-size: var(--text-xs); color: var(--steam-dim); display: flex; align-items: center; gap: 6px; }
+/* Instance and server icons: a Minecraft item, the size of the account's skin face. Hover darkens it with a +. */
+.item-icon {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent; /* item textures are see-through: the item sits straight on the row */
+  color: var(--steam-dim);
+}
+.item-icon:hover:not(:disabled) { background: transparent; }
+.item-icon img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.item-icon::after {
+  content: "+";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.item-icon:hover::after, .item-icon:focus-visible::after { opacity: 1; }
 .running-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--leaf); }
 
 .side-add {
@@ -466,8 +501,9 @@ main {
 .view { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 28px 36px 0; }
 .view[hidden] { display: none; }
 
-.view-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
-.heading { flex: 1; min-width: 0; }
+/* In a narrow window the actions wrap under the name rather than squeezing it to a letter. */
+.view-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; }
+.heading { flex: 1; min-width: 240px; }
 .heading h1 {
   font-size: var(--text-xl);
   font-weight: 700;
@@ -488,32 +524,49 @@ main {
 .meta-item .icon { font-size: 15px; }
 .pixel-icon { width: 16px; height: 16px; flex-shrink: 0; image-rendering: pixelated; } /* 16x16 pixel art: keep it sharp */
 .meta-item + .meta-item::before { content: ""; width: 4px; height: 4px; margin: 0 12px; border-radius: 50%; background: var(--clay); }
-.header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.header-actions .play { margin-left: 10px; }
+.header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto; }
+.header-actions .play-wrap { margin-left: 10px; position: relative; }
 
-/* The roast bar: fills while an instance is prepared, roasting from leaf green to amber to brown. */
-.roast {
-  height: 3px;
-  margin-top: 14px;
-  border-radius: 3px;
-  background: rgba(var(--clay-rgb), 0.5);
-  overflow: hidden;
-  opacity: 0;
-  transition: opacity 400ms;
+/* While an instance is prepared, Play fills like a cup: the tea rises from left to right, roasting from leaf green
+   to amber to brown, and stays full while the game runs. The fill carries its own copy of the label, clipped to the
+   same edge, so the text keeps its contrast on both sides. app.js pours it frame by frame (no transition here) and
+   sets --play-progress, --play-fill and --play-fill-text. */
+.play-fill {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  background: var(--play-fill, var(--liquor));
+  color: var(--play-fill-text, var(--on-liquor));
+  clip-path: inset(0 calc(100% - var(--play-progress, 0%)) 0 0);
 }
-.roast.active { opacity: 1; }
-.roast-fill {
-  height: 100%;
-  width: 0;
-  border-radius: 3px;
-  background: var(--leaf);
-  transition: width 300ms ease-out, background-color 300ms linear;
+button.play:not(:disabled) .play-fill { display: none; }
+
+/* What the launch is doing right now, under Play. It hangs below the header so it never moves the layout. */
+.play-detail {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  max-width: 360px;
+  font-size: var(--text-xs);
+  color: var(--steam-dim);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status { min-height: 20px; margin-top: 6px; font-size: var(--text-s); color: var(--steam-dim); }
+/* The instance's messages (game closed, crashed) take no room until there is one. */
+#status:empty { display: none; }
 .status.error { color: var(--ember); }
 
 .tabs { display: flex; gap: 22px; margin-top: 4px; border-bottom: 1px solid var(--clay); }
+/* Room for the launch line under Play; less when a message sits between the header and the tabs. */
+#instance-view .tabs { margin-top: 28px; }
+#instance-view .status:not(:empty) + .tabs { margin-top: 16px; }
 .tabs button {
   border: none;
   border-radius: 0;
@@ -614,9 +667,14 @@ label.sync-row { display: contents; cursor: pointer; }
 
 /* ---------- Server view ---------- */
 
-.join-row { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
-.join-label { color: var(--steam-dim); }
-.join-row select { min-width: 240px; }
+/* Under the header: the server's state on the left, and on the right, under Start and join, the instance it joins
+   with. Play sits in the same place on an instance, so the main action is always top right. */
+.srv-subhead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 8px; }
+.srv-subhead .status { flex: 1; min-width: 0; margin-top: 0; }
+.join-with { display: flex; align-items: center; gap: 8px; flex-shrink: 0; font-size: var(--text-s); color: var(--steam-dim); }
+.join-with select { max-width: 280px; padding: 4px 8px; font-size: var(--text-s); color: var(--steam); }
+.header-actions #srv-join { margin-left: 10px; min-width: 196px; } /* fits "Start and join", so "Join" keeps the width */
+#srv-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* the full path is in its tooltip */
 .console-wrap { flex: 1; min-height: 0; overflow-y: auto; margin-top: 10px; border-radius: 10px; background: var(--roast-deep); }
 /* The console tab doesn't scroll itself: the console fills it and scrolls, the command box stays at the bottom. */
 .tab-console { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
@@ -714,6 +772,33 @@ button.outline:hover:not(:disabled) { border-color: var(--liquor-bright); color:
 
 /* ---------- Dialogs ---------- */
 
+/* The icon picker: every item in a scrolling grid. */
+#icon-dialog { width: 520px; }
+.icon-grid {
+  height: 300px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 40px);
+  grid-auto-rows: 40px;
+  gap: 6px;
+  align-content: start;
+  margin-right: -8px;
+  padding: 2px 8px 2px 2px;
+}
+.icon-grid .hint { grid-column: 1 / -1; }
+.icon-heading {
+  grid-column: 1 / -1;
+  align-self: end;
+  margin: 10px 0 0;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--steam-dim);
+}
+.icon-heading:first-child { margin-top: 0; }
+.icon-choice { padding: 3px; border-radius: 8px; border-color: transparent; }
+.icon-choice img { width: 32px; height: 32px; display: block; image-rendering: pixelated; }
+.icon-choice.selected { border-color: var(--liquor); background: var(--kiln-raised); }
+
 dialog {
   width: 440px;
   padding: 24px;
@@ -755,17 +840,60 @@ dialog::backdrop { background: var(--backdrop); }
 .type-option input { position: absolute; opacity: 0; pointer-events: none; }
 .type-name { color: var(--steam); font-weight: 700; font-size: var(--text-m); }
 .type-desc { font-size: var(--text-xs); color: var(--steam-dim); line-height: 1.3; }
-/* New instance: Blank or Modpack, two cards. Both sections take the same room so switching never resizes the dialog. */
+/* New instance: a start page of three choices, then the setup page for the chosen one. Every page takes the same
+   room so moving between them never resizes the dialog. */
 #new-dialog { width: 520px; }
-.type-picker.two { grid-template-columns: repeat(2, 1fr); }
-.dialog-section { display: flex; flex-direction: column; gap: 12px; height: 320px; }
-.dialog-section[hidden] { display: none; }
-.pack-list { flex: 1; min-height: 0; overflow-y: auto; margin-right: -8px; padding-right: 8px; }
+/* Every page shares one height, snug around the start page's three choices, so clicking through never resizes. */
+.new-pages { height: 330px; }
+.new-page { display: flex; flex-direction: column; gap: 12px; height: 100%; }
+.new-page[hidden], .new-section[hidden] { display: none; }
+.new-section { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
+.choice {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  text-align: left;
+  border: 1px solid var(--clay);
+  border-radius: 10px;
+  background: var(--roast);
+  transition: border-color 120ms;
+}
+.choice:hover { border-color: var(--steam-dim); }
+.choice:focus-visible { outline: 2px solid var(--liquor); outline-offset: 2px; }
+.choice-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1px solid var(--clay);
+  border-radius: 10px;
+  color: var(--steam);
+  font-size: 18px;
+}
+.choice-text { display: flex; flex-direction: column; gap: 3px; }
+.choice-name { color: var(--steam); font-weight: 700; font-size: var(--text-m); }
+.choice-desc { color: var(--steam-dim); font-size: var(--text-s); line-height: 1.35; }
+.pack-scroll { flex: 1; min-height: 0; overflow-y: auto; margin-right: -8px; padding-right: 8px; }
 .pack-list > li { cursor: pointer; border-radius: 8px; padding: 10px 8px; }
 .pack-list > li:hover { background: var(--roast); }
 .pack-list > li[aria-selected="true"] { background: var(--roast); box-shadow: inset 0 0 0 1px var(--liquor); }
 .pack-list > li:focus-visible { outline: 2px solid var(--liquor); outline-offset: -2px; }
-.dialog-section .load-more { margin: 0; }
+.pack-scroll .load-more { margin: 8px auto 4px; }
+.upload-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px dashed var(--clay);
+  border-radius: 10px;
+  background: var(--roast);
+}
+.upload-box .hint { white-space: pre-line; }
+#upload-info.chosen { color: var(--steam); }
 /* Adding an existing folder skips everything above, so it sits apart from the new-server fields. */
 .existing-folder { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--clay); font-size: var(--text-s); color: var(--steam-dim); }
 .existing-folder button { padding: 5px 14px; }

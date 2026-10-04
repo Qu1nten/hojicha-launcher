@@ -353,7 +353,7 @@ function stopAll() {
 }
 
 module.exports = {
-  setHooks, list, get, add, create, remove, setPublic, addToWhitelist, removeFromWhitelist,
+  setHooks, list, get, add, create, remove, update, setPublic, addToWhitelist, removeFromWhitelist,
   start, stop, stopAll, command, isRunning, address, restoreAllPending,
   port: (id) => readPort(get(id).dir),
 };

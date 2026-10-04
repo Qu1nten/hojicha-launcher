@@ -122,14 +122,36 @@ async function refreshInstances(selectId) {
   renderMain();
 }
 
+// The item icon in front of an instance or server. Hovering shows a + and clicking opens the icon picker,
+// without selecting the row.
+function itemIcon(kind, thing) {
+  const button = el('button', {
+    type: 'button',
+    className: 'item-icon',
+    title: 'Change icon',
+    ariaLabel: `Change the icon of ${thing.name}`,
+  }, [thing.iconUrl ? el('img', { src: thing.iconUrl, alt: '' }) : icon('block')]);
+  button.onclick = (event) => {
+    event.stopPropagation();
+    // A mouse click (detail > 0) lets go of focus first, so closing the picker doesn't hand focus back and ring
+    // the icon. From the keyboard, focus comes back as usual.
+    if (event.detail > 0) button.blur();
+    openIconPicker(kind, thing);
+  };
+  return button;
+}
+
 function renderSidebar() {
   $('#instance-list').replaceChildren(...state.instances.map((inst) => {
     const active = state.view === 'instance' && inst.id === state.selected;
     const item = el('li', { className: active ? 'active' : '' }, [
-      el('span', { className: 'name', textContent: inst.name }),
-      el('span', { className: 'sub' }, [
-        loaderLabel(inst),
-        state.status[inst.id]?.state === 'running' ? el('span', { className: 'running-dot', title: 'Playing' }) : null,
+      itemIcon('instance', inst),
+      el('div', { className: 'side-text' }, [
+        el('span', { className: 'name', textContent: inst.name }),
+        el('span', { className: 'sub' }, [
+          loaderLabel(inst),
+          state.status[inst.id]?.state === 'running' ? el('span', { className: 'running-dot', title: 'Playing' }) : null,
+        ]),
       ]),
     ]);
     item.onclick = () => selectInstance(inst.id);
@@ -139,10 +161,13 @@ function renderSidebar() {
     const active = state.view === 'server' && server.id === state.selectedServer;
     const running = ['starting', 'running', 'stopping'].includes(state.serverStatus[server.id]?.state);
     const item = el('li', { className: active ? 'active' : '' }, [
-      el('span', { className: 'name', textContent: server.name }),
-      el('span', { className: 'sub' }, [
-        `${serverFlavor(server)} ${server.mcVersion}`,
-        running ? el('span', { className: 'running-dot', title: 'Running' }) : null,
+      itemIcon('server', server),
+      el('div', { className: 'side-text' }, [
+        el('span', { className: 'name', textContent: server.name }),
+        el('span', { className: 'sub' }, [
+          `${serverFlavor(server)} ${server.mcVersion}`,
+          running ? el('span', { className: 'running-dot', title: 'Running' }) : null,
+        ]),
       ]),
     ]);
     item.onclick = () => selectServer(server.id);
@@ -296,10 +321,10 @@ function renderMeta() {
 }
 
 // As the launch progresses, hojicha roasts from leaf green to tea liquor to roasted brown; matcha is whisked from
-// pale to fresh to deep green.
+// fresh to deep green. Both start well apart from the empty cup (--clay), so the first few percent already show.
 const ROAST_STOPS = {
   hojicha: [[156, 178, 106], [217, 148, 74], [176, 100, 56]],
-  matcha: [[196, 205, 140], [137, 150, 67], [108, 118, 44]],
+  matcha: [[158, 182, 76], [137, 150, 67], [108, 118, 44]],
 };
 function roastColor(fraction) {
   const stops = ROAST_STOPS[document.documentElement.dataset.theme] || ROAST_STOPS.hojicha;
@@ -307,25 +332,101 @@ function roastColor(fraction) {
   const i = Math.min(stops.length - 2, Math.floor(f));
   const t = f - i;
   const [a, b] = [stops[i], stops[i + 1]];
-  return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * t)).join(', ')})`;
+  return a.map((v, k) => Math.round(v + (b[k] - v) * t));
 }
 
-let roastHideTimer = null;
-function renderRoast(s) {
-  const bar = $('#roast');
-  const fill = $('#roast-fill');
-  clearTimeout(roastHideTimer);
-  if (s.state === 'installing' || s.state === 'running') {
-    const progress = s.state === 'running' ? 1 : (s.progress ?? 0);
-    bar.classList.add('active');
-    fill.style.width = `${Math.round(progress * 100)}%`;
-    fill.style.backgroundColor = reduceMotion.matches ? 'var(--liquor)' : roastColor(progress);
-    // Once the game is running the bar has done its job: let it fade.
-    if (s.state === 'running') roastHideTimer = setTimeout(() => bar.classList.remove('active'), 1200);
-  } else {
-    bar.classList.remove('active');
-    fill.style.width = '0';
+// WCAG relative luminance of an [r, g, b] or a #rrggbb colour.
+function luminance(color) {
+  const rgb = Array.isArray(color) ? color : [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16));
+  const [r, g, b] = rgb.map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+// The label over the tea: whichever of the theme's text and background colours reads better on the fill.
+const themeText = {};
+function textOn(rgb) {
+  const theme = document.documentElement.dataset.theme || 'hojicha';
+  if (!themeText[theme]) {
+    const css = getComputedStyle(document.documentElement);
+    themeText[theme] = [css.getPropertyValue('--steam').trim(), css.getPropertyValue('--roast').trim()];
   }
+  const fill = luminance(rgb);
+  const contrast = (hex) => {
+    const l = luminance(hex);
+    return (Math.max(l, fill) + 0.05) / (Math.min(l, fill) + 0.05);
+  };
+  return themeText[theme].reduce((best, hex) => (contrast(hex) > contrast(best) ? hex : best));
+}
+
+// Play as a cup: fills once from empty to full while the instance is prepared, and stays full while the game runs.
+// The tea follows the launch progress but never faster than a full cup in CUP_MIN_FILL seconds, so a launch where
+// everything is already downloaded still pours in one smooth go instead of a flicker. The launch steps show under
+// Play only once preparing takes longer than DETAIL_DELAY, so quick launches stay calm.
+const CUP_MIN_FILL = 0.9;
+const DETAIL_DELAY = 700;
+const cup = { id: null, state: 'idle', text: '', shown: 0, target: 0, since: 0, last: 0, frame: 0, detailTimer: null };
+
+function renderPlay(id, s) {
+  const busy = s.state === 'installing' || s.state === 'running';
+  const progress = s.state === 'running' ? 1 : s.state === 'installing' ? (s.progress ?? 0) : 0;
+  if (cup.id !== id) {
+    // Another instance: show where its launch is, without pouring.
+    cup.id = id;
+    cup.target = cup.shown = busy ? progress : 0;
+    cup.since = performance.now() - DETAIL_DELAY;
+  } else if (s.state === 'installing' && cup.state !== 'installing') {
+    cup.target = cup.shown = 0; // a new launch starts with an empty cup
+    cup.since = performance.now();
+  }
+  cup.state = s.state;
+  cup.text = s.text;
+  cup.target = busy ? Math.max(cup.target, progress) : 0; // progress only ever rises within one launch
+  if (!busy || reduceMotion.matches) cup.shown = cup.target;
+
+  clearTimeout(cup.detailTimer);
+  const untilDetail = cup.since + DETAIL_DELAY - performance.now();
+  if (s.state === 'installing' && untilDetail > 0) cup.detailTimer = setTimeout(drawCup, untilDetail);
+
+  drawCup();
+  if (cup.shown < cup.target && !cup.frame) {
+    cup.last = performance.now();
+    cup.frame = requestAnimationFrame(pourCup);
+  }
+}
+
+function pourCup(now) {
+  const dt = Math.min(0.05, (now - cup.last) / 1000);
+  cup.last = now;
+  const gap = cup.target - cup.shown;
+  // Ease towards the target, at least a little each frame so it always arrives, and never faster than the cap.
+  const step = Math.min(gap, dt / CUP_MIN_FILL, Math.max(gap * (1 - Math.exp(-dt / 0.12)), 0.3 * dt));
+  cup.shown += step;
+  if (cup.target - cup.shown < 0.0005) cup.shown = cup.target;
+  drawCup();
+  cup.frame = cup.shown < cup.target ? requestAnimationFrame(pourCup) : 0;
+}
+
+function drawCup() {
+  const play = $('#play');
+  // "Playing" waits for the cup to be full, so the pour always finishes.
+  const label = cup.state === 'installing' || (cup.state === 'running' && cup.shown < 1) ? 'Preparing'
+    : cup.state === 'running' ? 'Playing' : 'Play';
+  $('#play-label').textContent = label;
+  $('#play-fill-label').textContent = label;
+  play.style.setProperty('--play-progress', `${(cup.shown * 100).toFixed(2)}%`);
+  if (reduceMotion.matches) {
+    play.style.removeProperty('--play-fill');
+    play.style.removeProperty('--play-fill-text');
+  } else {
+    const rgb = roastColor(cup.shown);
+    play.style.setProperty('--play-fill', `rgb(${rgb.join(', ')})`);
+    play.style.setProperty('--play-fill-text', textOn(rgb));
+  }
+  const showDetail = cup.state === 'installing' && performance.now() - cup.since >= DETAIL_DELAY;
+  $('#play-detail').textContent = showDetail ? cup.text : '';
 }
 
 function renderStatus() {
@@ -333,13 +434,13 @@ function renderStatus() {
   if (!inst) return;
   const s = state.status[inst.id] || { state: 'idle', text: '' };
   const statusEl = $('#status');
-  statusEl.textContent = s.text;
+  // Launch steps go under Play, and Play itself says when the game is running.
+  statusEl.textContent = s.state === 'installing' || s.state === 'running' ? '' : s.text;
   statusEl.className = `status${s.state === 'error' ? ' error' : ''}`;
-  renderRoast(s);
+  renderPlay(inst.id, s);
 
   const play = $('#play');
   play.disabled = isBusy(inst.id);
-  $('#play-label').textContent = s.state === 'running' ? 'Playing' : s.state === 'installing' ? 'Preparing' : 'Play';
   $('#delete-instance').disabled = isBusy(inst.id);
   if (state.tab === 'sync') renderSync();
 }
@@ -634,6 +735,7 @@ function renderServer() {
   const s = state.serverStatus[server.id] || { state: 'idle', text: '' };
   $('#srv-name').textContent = server.name;
   $('#srv-meta').textContent = `${serverFlavor(server)} ${server.mcVersion} in ${server.dir}`;
+  $('#srv-meta').title = server.dir;
   const statusEl = $('#srv-status');
   statusEl.textContent = s.text;
   statusEl.className = `status${s.state === 'error' ? ' error' : ''}`;
@@ -652,7 +754,7 @@ function renderServer() {
     : [el('option', { value: '', textContent: `No ${server.mcVersion} instances yet` })]));
   if (matching.some((i) => i.id === previous)) select.value = previous;
   const join = $('#srv-join');
-  join.textContent = s.state === 'running' ? 'Join' : 'Start and join';
+  $('#srv-join-label').textContent = s.state === 'running' ? 'Join' : 'Start and join';
   join.disabled = !matching.length || s.state === 'stopping' || isBusy(select.value);
 
   renderOnline();
@@ -1043,8 +1145,10 @@ async function openFile(file) {
   $('#file-restart').hidden = true;
   try {
     const { text, modified } = await api.readServerFile(fileState.serverId, file);
-    Object.assign(fileState, { path: file, saved: text, modified });
     showFile(text);
+    // The textarea turns \r\n into \n, so compare against what it holds and put CRLF back on save.
+    Object.assign(fileState, { path: file, saved: $('#file-text').value, modified, crlf: text.includes('\r\n') });
+    $('#file-name').textContent = file;
   } catch (err) {
     setMessage($('#file-message'), errorText(err), 'error');
   }
@@ -1074,7 +1178,7 @@ $('#file-save').onclick = async () => {
   const id = fileState.serverId;
   try {
     const text = $('#file-text').value;
-    const { modified } = await api.writeServerFile(id, fileState.path, text, fileState.modified);
+    const { modified } = await api.writeServerFile(id, fileState.path, fileState.crlf ? text.replace(/\n/g, '\r\n') : text, fileState.modified);
     Object.assign(fileState, { saved: text, modified });
     $('#file-save').disabled = true;
     savedMessage($('#file-message'), $('#file-restart'), id);
@@ -1107,6 +1211,16 @@ function showServerError(id, err) {
 }
 
 // ---------- New instance dialog ----------
+// A start page with three choices (custom setup, a Modrinth modpack, an .mrpack file), then the setup page for it.
+
+const NEW_STEPS = {
+  home: { title: 'Create instance' },
+  custom: { title: 'Custom setup', placeholder: () => 'My instance' },
+  modpack: { title: 'Start from a modpack', placeholder: () => packSearch.chosen?.title || 'Name of the modpack' },
+  upload: { title: 'Upload a modpack', placeholder: () => newDialog.upload?.title || 'Name of the modpack' },
+};
+const newDialog = { step: 'home', upload: null, creating: false };
+const packSearch = { query: '', offset: 0, total: 0, done: false, request: 0, timer: null, chosen: null };
 
 async function fillVersions() {
   const select = $('#new-version');
@@ -1116,45 +1230,81 @@ async function fillVersions() {
   select.replaceChildren(...versions.map((v) => el('option', { value: v.id, textContent: v.id })));
 }
 
-async function openNewDialog() {
-  $('#new-error').textContent = '';
+function openNewDialog() {
   $('#new-name').value = '';
-  document.querySelector('input[name="new-kind"][value="blank"]').checked = true;
+  newDialog.upload = null;
+  newDialog.creating = false;
+  $('#upload-info').textContent = 'No file chosen yet.';
+  $('#upload-info').classList.remove('chosen');
+  $('#upload-pick').textContent = 'Choose .mrpack file';
   choosePack(null, null);
-  showNewKind();
+  showNewStep('home');
   $('#new-dialog').showModal();
-  $('#new-name').focus(); // type a name straight away
-  try {
-    await fillVersions();
-  } catch (err) {
-    $('#new-error').textContent = `Couldn't load the version list. Check your internet connection. (${errorText(err)})`;
-  }
 }
 
-// ---------- New instance: from a modpack ----------
-
-const newKind = () => document.querySelector('input[name="new-kind"]:checked').value;
-const packSearch = { query: '', offset: 0, total: 0, done: false, request: 0, timer: null, chosen: null };
-
-function showNewKind() {
-  const pack = newKind() === 'modpack';
-  $('#new-blank').hidden = pack;
-  $('#new-modpack').hidden = !pack;
+function showNewStep(step) {
+  newDialog.step = step;
+  const home = step === 'home';
+  $('#new-title').textContent = NEW_STEPS[step].title;
+  $('#new-home').hidden = !home;
+  $('#new-setup').hidden = home;
+  $('#new-custom').hidden = step !== 'custom';
+  $('#new-modpack').hidden = step !== 'modpack';
+  $('#new-upload').hidden = step !== 'upload';
+  $('#new-cancel').textContent = home ? 'Cancel' : 'Back';
+  $('#new-create').hidden = home; // the start page's choices are its buttons
   $('#new-error').textContent = '';
   updateNewCreate();
-  if (pack && !packSearch.done) runPackSearch(false); // show popular packs straight away
+  if (home) {
+    document.querySelector('#new-home .choice').focus();
+    return;
+  }
+  $('#new-name').focus(); // type a name straight away
+  if (step === 'custom') {
+    fillVersions().catch((err) => {
+      $('#new-error').textContent = `Couldn't load the version list. Check your internet connection. (${errorText(err)})`;
+    });
+  }
+  if (step === 'modpack' && !packSearch.done) runPackSearch(false); // show popular packs straight away
 }
 
-// A modpack instance needs a pack picked first; an empty name then means the pack's own name.
+// Create needs whatever the page asks for; an empty name means the pack's own name.
 function updateNewCreate() {
-  const pack = newKind() === 'modpack';
-  $('#new-create').disabled = pack && !packSearch.chosen;
-  $('#new-name').placeholder = pack ? packSearch.chosen?.title || 'Name of the modpack' : 'My instance';
+  const { step } = newDialog;
+  const ready = step === 'custom'
+    || (step === 'modpack' && Boolean(packSearch.chosen) && !$('#pack-version').disabled)
+    || (step === 'upload' && Boolean(newDialog.upload));
+  $('#new-create').disabled = newDialog.creating || !ready;
+  if (step !== 'home') $('#new-name').placeholder = NEW_STEPS[step].placeholder();
 }
 
-function choosePack(hit, row) {
+// Picking a pack lists the Minecraft versions it can be played on, newest first.
+async function choosePack(hit, row) {
   packSearch.chosen = hit;
   for (const li of $('#pack-results').children) li.setAttribute('aria-selected', String(li === row));
+  const select = $('#pack-version');
+  select.disabled = true;
+  select.replaceChildren(el('option', { textContent: hit ? 'Loading versions…' : 'Pick a modpack first' }));
+  updateNewCreate();
+  if (!hit) return;
+  let versions;
+  try {
+    versions = await api.modpackGameVersions(hit.projectId);
+  } catch (err) {
+    if (packSearch.chosen !== hit) return;
+    select.replaceChildren(el('option', { textContent: 'No versions found' }));
+    $('#new-error').textContent = errorText(err);
+    return;
+  }
+  if (packSearch.chosen !== hit) return; // another pack was picked meanwhile
+  $('#new-error').textContent = '';
+  select.replaceChildren(...versions.map((v) => el('option', {
+    value: v.versionId,
+    textContent: `${v.gameVersion}  ·  ${hit.title} ${v.versionNumber}${v.type === 'release' ? '' : ` (${v.type})`}`,
+  })));
+  // Start on the newest full release; alphas and betas stay one click away.
+  select.selectedIndex = Math.max(0, versions.findIndex((v) => v.type === 'release'));
+  select.disabled = false;
   updateNewCreate();
 }
 
@@ -1181,7 +1331,7 @@ async function runPackSearch(append) {
     results.replaceChildren(...(rows.length
       ? rows
       : [emptyRow(s.query ? `Nothing found for "${s.query}". Try a different word.` : 'Nothing found.')]));
-    results.scrollTop = 0;
+    $('#pack-scroll').scrollTop = 0;
   }
   s.offset += page.hits.length;
   s.total = page.total;
@@ -1206,47 +1356,127 @@ function packRow(hit) {
   return row;
 }
 
-// Makes the instance at once and switches to it; the pack's files download in the background.
-async function createFromModpack() {
-  const create = $('#new-create');
-  create.disabled = true;
+async function pickModpackFile() {
+  $('#new-error').textContent = '';
   try {
-    const created = await api.installModpack(packSearch.chosen.projectId, $('#new-name').value);
-    $('#new-dialog').close();
-    state.tab = 'mods'; // watch the mods arrive
-    await refreshInstances(created.id);
+    const info = await api.pickModpackFile();
+    if (!info) return; // cancelled
+    newDialog.upload = info;
+    const version = info.versionNumber ? ` ${info.versionNumber}` : '';
+    $('#upload-info').textContent = `${info.title}${version}\nMinecraft ${info.gameVersion} with Fabric, ${info.mods} mods`;
+    $('#upload-info').classList.add('chosen');
+    $('#upload-pick').textContent = 'Choose another file';
   } catch (err) {
     $('#new-error').textContent = errorText(err);
-    create.disabled = false;
+  } finally {
+    updateNewCreate();
   }
 }
 
+// Makes the instance at once and switches to it; a modpack's files then download in the background.
 async function createInstance(event) {
   event.preventDefault();
-  if (newKind() === 'modpack') {
-    if (document.activeElement === $('#pack-query')) { // Enter in the search box searches
-      clearTimeout(packSearch.timer);
-      runPackSearch(false);
-    } else if (packSearch.chosen) {
-      $('#new-error').textContent = '';
-      await createFromModpack();
-    }
+  const { step } = newDialog;
+  if (step === 'modpack' && document.activeElement === $('#pack-query')) { // Enter in the search box searches
+    clearTimeout(packSearch.timer);
+    runPackSearch(false);
     return;
   }
-  const create = $('#new-create');
-  create.disabled = true;
+  if ($('#new-create').disabled || $('#new-create').hidden) return;
+  const name = $('#new-name').value;
+  newDialog.creating = true;
+  updateNewCreate();
   $('#new-error').textContent = '';
   try {
-    const inst = await api.createInstance({
-      name: $('#new-name').value,
-      gameVersion: $('#new-version').value,
-      loader: $('#new-loader').value,
-    });
+    let created;
+    if (step === 'custom') {
+      created = await api.createInstance({ name, gameVersion: $('#new-version').value, loader: $('#new-loader').value });
+    } else {
+      created = step === 'modpack'
+        ? await api.installModpack(packSearch.chosen.projectId, name, $('#pack-version').value)
+        : await api.installModpackFile(name);
+      state.tab = 'mods'; // watch the mods arrive
+    }
     $('#new-dialog').close();
-    await refreshInstances(inst.id);
+    await refreshInstances(created.id);
   } catch (err) {
     $('#new-error').textContent = errorText(err);
-    create.disabled = false;
+  } finally {
+    newDialog.creating = false;
+    updateNewCreate();
+  }
+}
+
+// ---------- Icon picker ----------
+// Every Minecraft item (core/icons.js); picking one sets the icon of an instance or server.
+
+const iconPicker = { kind: null, id: null, icons: null };
+
+async function openIconPicker(kind, thing) {
+  Object.assign(iconPicker, { kind, id: thing.id });
+  $('#icon-title').textContent = `Icon for ${thing.name}`;
+  $('#icon-search').value = '';
+  $('#icon-error').textContent = '';
+  $('#icon-dialog').showModal();
+  $('#icon-search').focus();
+  if (!iconPicker.icons) {
+    $('#icon-grid').replaceChildren(el('p', { className: 'hint', textContent: 'Loading items…' }));
+    try {
+      iconPicker.icons = await api.listIcons();
+    } catch (err) {
+      $('#icon-error').textContent = errorText(err);
+      return;
+    }
+  }
+  renderIconGrid(thing.icon);
+}
+
+function renderIconGrid(selected) {
+  const query = $('#icon-search').value.trim().toLowerCase();
+  const icons = iconPicker.icons || [];
+  if (!icons.length) {
+    $('#icon-grid').replaceChildren(el('p', {
+      className: 'hint',
+      textContent: 'Item icons come from the game itself, so they show up once a Minecraft version has been downloaded. Play any instance once.',
+    }));
+    $('#icon-random').disabled = true;
+    return;
+  }
+  $('#icon-random').disabled = false;
+  const shown = icons.filter((i) => !query || i.label.toLowerCase().includes(query) || i.name.includes(query));
+  if (!shown.length) {
+    $('#icon-grid').replaceChildren(el('p', { className: 'hint', textContent: `No item called "${query}".` }));
+    return;
+  }
+  // The list arrives grouped by category (core/icons.js): a heading starts each group.
+  const nodes = [];
+  for (const i of shown) {
+    if (i.category !== nodes.category) {
+      nodes.push(el('h3', { className: 'icon-heading', textContent: i.category }));
+      nodes.category = i.category;
+    }
+    const button = el('button', { type: 'button', className: 'icon-choice', title: i.label, ariaLabel: i.label }, [
+      el('img', { src: i.url, alt: '' }),
+    ]);
+    if (i.name === selected) button.classList.add('selected');
+    button.onclick = () => setIcon(i.name);
+    nodes.push(button);
+  }
+  $('#icon-grid').replaceChildren(...nodes);
+}
+
+async function setIcon(name) {
+  try {
+    if (iconPicker.kind === 'instance') {
+      await api.setInstanceIcon(iconPicker.id, name);
+      await refreshInstances();
+    } else {
+      await api.setServerIcon(iconPicker.id, name);
+      await refreshServers();
+    }
+    $('#icon-dialog').close();
+  } catch (err) {
+    $('#icon-error').textContent = errorText(err);
   }
 }
 
@@ -1399,6 +1629,18 @@ function cancelMicrosoftLogin() {
 
 // ---------- Wiring ----------
 
+// A popup's backdrop dims the page, but not the Windows title bar buttons drawn over it: tell main.js when one is
+// open so it dims those too.
+{
+  const dialogs = [...document.querySelectorAll('dialog')];
+  let open = false;
+  const watcher = new MutationObserver(() => {
+    const now = dialogs.some((d) => d.open);
+    if (now !== open) api.setPopupOpen((open = now));
+  });
+  for (const dialog of dialogs) watcher.observe(dialog, { attributes: true, attributeFilter: ['open'] });
+}
+
 api.onStatus(({ id, state: s, text, progress }) => {
   const previous = state.status[id];
   // Starting and closing the game update last played and play time: fetch them.
@@ -1499,9 +1741,16 @@ $('#load-more').onclick = () => runSearch(true);
 $('#new-instance').onclick = openNewDialog;
 $('#empty-new-instance').onclick = openNewDialog;
 $('#new-snapshots').onchange = fillVersions;
-$('#new-cancel').onclick = () => $('#new-dialog').close();
+$('#new-cancel').onclick = () => (newDialog.step === 'home' ? $('#new-dialog').close() : showNewStep('home'));
 $('#new-form').onsubmit = createInstance;
-for (const radio of document.querySelectorAll('input[name="new-kind"]')) radio.onchange = showNewKind;
+for (const choice of document.querySelectorAll('#new-home .choice')) choice.onclick = () => showNewStep(choice.dataset.step);
+$('#upload-pick').onclick = pickModpackFile;
+$('#icon-search').oninput = () => renderIconGrid();
+$('#icon-close').onclick = () => $('#icon-dialog').close();
+$('#icon-random').onclick = () => {
+  const icons = iconPicker.icons || [];
+  if (icons.length) setIcon(icons[Math.floor(Math.random() * icons.length)].name);
+};
 // Search as you type, once typing pauses.
 $('#pack-query').oninput = () => {
   clearTimeout(packSearch.timer);
