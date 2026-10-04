@@ -11,7 +11,7 @@
 
 > **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 
-![Hojicha Launcher showing a Fabric instance with its mods, play time and last played](docs/screenshot-mods.png)
+![Hojicha Launcher in the dark Hojicha theme, showing a Fabric instance with its mods, play time and last played](docs/screenshot-mods.png)
 
 ## Features
 
@@ -39,6 +39,8 @@
 | ![Modrinth browser with install buttons](docs/screenshot-browse.png) | ![A running server with its address and whitelist](docs/screenshot-server.png) |
 | **New server** | **Accounts** |
 | ![New server dialog with Paper, Purpur and Fabric](docs/screenshot-new-server.png) | ![Accounts dialog](docs/screenshot-accounts.png) |
+
+![The light Matcha theme: the same launcher in whisked matcha greens, switched from the title bar](docs/screenshot-matcha.png)
 
 ## Accounts and privacy
 
