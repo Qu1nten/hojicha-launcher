@@ -155,7 +155,11 @@ function registerIpc() {
   const handle = (channel, fn) => ipcMain.handle(channel, (_event, ...args) => fn(...args));
 
   handle('settings:get', () => settings.get());
-  handle('settings:save', (patch) => settings.save(patch));
+  handle('settings:save', (patch) => {
+    const saved = settings.save(patch);
+    if (patch.theme) applyTheme(saved.theme);
+    return saved;
+  });
 
   handle('accounts:list', () => accounts.summary());
   handle('accounts:refreshProfiles', () => accounts.refreshProfiles());
@@ -286,25 +290,41 @@ function registerIpc() {
 }
 
 // The whole UI is drawn 10% larger than its CSS sizes. The Windows buttons aren't zoomed, so their height
-// is the title bar's CSS height (40px, see .titlebar in style.css) times the zoom.
+// is the title bar's CSS height (52px, see .titlebar in style.css) times the zoom.
 const ZOOM = 1.1;
-const TITLEBAR_HEIGHT = Math.round(40 * ZOOM);
+const TITLEBAR_HEIGHT = Math.round(52 * ZOOM);
 
 let allowClose = false; // set once running servers have stopped after the player chose to close
 
+// Window colours per theme (keep in step with --roast and --steam-dim in style.css): the background shown before
+// the page paints, and the Windows title bar buttons, which sit on the plain background colour.
+const THEME_COLORS = {
+  hojicha: { background: '#241913', symbols: '#b09d8d' },
+  matcha: { background: '#eef0d8', symbols: '#575d3a' },
+};
+
+function applyTheme(theme) {
+  if (!win || win.isDestroyed()) return;
+  const colors = THEME_COLORS[theme] || THEME_COLORS.hojicha;
+  win.setBackgroundColor(colors.background);
+  win.setTitleBarOverlay({ color: colors.background, symbolColor: colors.symbols, height: TITLEBAR_HEIGHT });
+}
+
 function createWindow() {
+  const { theme } = settings.get();
+  const colors = THEME_COLORS[theme] || THEME_COLORS.hojicha;
   win = new BrowserWindow({
     width: 1200,
     height: 790,
     minWidth: 900,
     minHeight: 570,
-    backgroundColor: '#241913',
+    backgroundColor: colors.background,
     title: 'Hojicha Launcher',
     icon: ICON,
     // Our own title bar (see .titlebar in style.css). Windows still draws the minimise/maximise/close buttons
     // over it, tinted to the palette, so Snap Layouts and the usual hover behaviour keep working.
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#241913', symbolColor: '#b09d8d', height: TITLEBAR_HEIGHT },
+    titleBarOverlay: { color: colors.background, symbolColor: colors.symbols, height: TITLEBAR_HEIGHT },
     webPreferences: { preload: path.join(__dirname, 'preload.js'), zoomFactor: ZOOM },
   });
   win.removeMenu();
@@ -320,7 +340,7 @@ function createWindow() {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'), { query: { theme } }); // read by renderer/theme.js
 }
 
 if (process.platform === 'win32') app.setAppUserModelId(APP_ID);

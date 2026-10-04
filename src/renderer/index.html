@@ -4,16 +4,22 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self'; font-src 'self'">
   <title>Hojicha Launcher</title>
+  <script src="theme.js"></script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="titlebar">
     <div class="brand">
-      <img src="../../build/icon.png" alt="" width="28" height="28">
+      <img class="logo-hojicha" src="../../build/icon.png" alt="" width="40" height="40">
+      <img class="logo-matcha" src="../../build/icon-matcha.png" alt="" width="40" height="40">
       <span>Hojicha</span>
       <span id="app-version" class="app-version"></span>
     </div>
     <div class="titlebar-main">
+      <div class="theme-switch" role="radiogroup" aria-label="Theme">
+        <button type="button" role="radio" data-theme-choice="hojicha" title="Dark: roasted green tea">Hojicha</button>
+        <button type="button" role="radio" data-theme-choice="matcha" title="Light: whisked green tea">Matcha</button>
+      </div>
       <span id="update-progress" class="update-progress" hidden></span>
       <button type="button" id="update-install" class="update-install" hidden>Restart to update</button>
       <button type="button" id="activity" class="activity" disabled>

@@ -56,6 +56,17 @@
   --steam: #efe6dc;      /* text */
   --steam-dim: #b09d8d;  /* secondary text */
   --ember: #f09a86;      /* errors */
+  --on-liquor: #241913;  /* text on liquor fills */
+  --liquor-text: var(--liquor);             /* liquor as text, where it has to stay readable */
+  --liquor-text-bright: var(--liquor-bright);
+  --leaf-text: var(--leaf);
+  --clay-rgb: 74, 53, 40;                   /* softer dividers: rgba(var(--clay-rgb), alpha) */
+  --backdrop: rgba(14, 9, 6, 0.65);
+  --glow-1: rgba(217, 148, 74, 0.09);       /* the warm light over main, see below */
+  --glow-2: rgba(176, 100, 56, 0.07);
+  --glow-3: rgba(217, 148, 74, 0.06);
+  --edge-shadow: rgba(8, 5, 3, 0.28);       /* the faint shade the sidebar casts on main */
+  --grain-opacity: 0.06;
 
   /* Type scale (base 15px, ~1.25 ratio) */
   --text-xs: 13px;
@@ -69,6 +80,35 @@
 
   --sidebar-width: 264px;
   color-scheme: dark;
+}
+
+/* Matcha: the light theme. Every hojicha colour has a whisked-green counterpart with the same job, and the grain
+   and the light over main are the same, only green. Text colours keep at least 4.5:1 on their surfaces. Picked
+   with the switch in the title bar; theme.js applies it before the first paint. */
+:root[data-theme="matcha"] {
+  --roast: #eef0d8;
+  --roast-deep: #e3e7c6;
+  --kiln: #dae0b8;
+  --kiln-raised: #ced5a6;
+  --clay: #bcc391;
+  --liquor: #6c762c;
+  --liquor-bright: #899643;
+  --leaf: #899643;
+  --steam: #252a12;
+  --steam-dim: #575d3a;
+  --ember: #a3352a;
+  --on-liquor: #ffffff;
+  --liquor-text: #5b6425;
+  --liquor-text-bright: #4c5719;
+  --leaf-text: #4c5719;
+  --clay-rgb: 188, 195, 145;
+  --backdrop: rgba(37, 42, 18, 0.35);
+  --glow-1: rgba(137, 150, 67, 0.22);       /* the same light, in matcha green: on a pale ground it needs more */
+  --glow-2: rgba(108, 118, 44, 0.14);       /* colour to show as much as hojicha's, but text over its centre */
+  --glow-3: rgba(137, 150, 67, 0.16);       /* still keeps 4.5:1 */
+  --edge-shadow: rgba(30, 50, 4, 0.16); /* a green shade, not grey */
+  --grain-opacity: 0.045;                   /* overlay grain shows most on mid-tones like the green Play button */
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -88,7 +128,7 @@ body {
 
 h1, h2, p { margin: 0; }
 
-::selection { background: var(--liquor); color: var(--roast); }
+::selection { background: var(--liquor); color: var(--on-liquor); }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--clay); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
@@ -122,7 +162,7 @@ button.danger:hover:not(:disabled), button.danger:focus-visible { color: var(--e
 button.primary {
   background: var(--liquor);
   border-color: var(--liquor);
-  color: var(--roast);
+  color: var(--on-liquor);
   font-weight: 700;
 }
 button.primary:hover:not(:disabled) { background: var(--liquor-bright); border-color: var(--liquor-bright); }
@@ -131,7 +171,7 @@ button.primary:hover:not(:disabled) { background: var(--liquor-bright); border-c
 button.play {
   background: var(--liquor);
   border: none;
-  color: var(--roast);
+  color: var(--on-liquor);
   font-size: var(--text-l);
   font-weight: 700;
   padding: 10px 30px;
@@ -169,13 +209,13 @@ input:focus-visible, select:focus-visible { outline: none; }
    min/max/close buttons on the right (titleBarOverlay in main.js); the titlebar-area env() values keep
    our content clear of them. */
 .titlebar {
-  --titlebar-height: 40px; /* keep in step with TITLEBAR_HEIGHT in main.js */
+  --titlebar-height: 52px; /* keep in step with TITLEBAR_HEIGHT in main.js */
   height: var(--titlebar-height);
   flex-shrink: 0;
   display: flex;
   user-select: none;
   -webkit-app-region: drag;
-  box-shadow: inset 0 -1px rgba(74, 53, 40, 0.6); /* hidden behind .brand, so the sidebar runs on unbroken */
+  box-shadow: inset 0 -1px rgba(var(--clay-rgb), 0.6); /* hidden behind .brand, so the sidebar runs on unbroken */
 }
 .titlebar button { -webkit-app-region: no-drag; }
 
@@ -184,15 +224,21 @@ input:focus-visible, select:focus-visible { outline: none; }
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 20px;
+  gap: 12px;
+  padding: 0 18px;
   background: var(--kiln);
-  font-size: var(--text-l);
+  font-size: 24px;
   font-weight: 700;
   letter-spacing: 0.01em;
+  position: relative; /* casts the sidebar's edge shade too, so it runs the full height of the window */
+  z-index: 1;
+  box-shadow: 4px 0 36px -8px var(--edge-shadow);
+  clip-path: inset(0 -48px 0 0); /* shade to the right only, no seam between the title bar and the sidebar */
 }
 .brand img { image-rendering: pixelated; } /* pixel-art logo: keep every pixel sharp */
-.app-version { font-size: var(--text-xs); font-weight: 500; color: var(--steam-dim); letter-spacing: 0.02em; transform: translateY(1px); }
+/* The cup follows the theme: roasted hojicha, or a bowl of matcha. */
+:root:not([data-theme="matcha"]) .logo-matcha, :root[data-theme="matcha"] .logo-hojicha { display: none; }
+.app-version { font-size: var(--text-m); font-weight: 500; color: var(--steam-dim); letter-spacing: 0.02em; transform: translateY(1px); }
 
 .titlebar-main {
   flex: 1;
@@ -212,12 +258,50 @@ input:focus-visible, select:focus-visible { outline: none; }
   padding: 3px 12px;
   border-radius: 999px;
   border-color: var(--liquor);
-  color: var(--liquor);
+  color: var(--liquor-text);
   font-size: var(--text-s);
   white-space: nowrap;
 }
-.update-install:hover:not(:disabled) { border-color: var(--liquor-bright); color: var(--liquor-bright); background: var(--kiln); }
+.update-install:hover:not(:disabled) { border-color: var(--liquor-bright); color: var(--liquor-text-bright); background: var(--kiln); }
 .update-progress[hidden], .update-install[hidden] { display: none; }
+
+/* Hojicha (dark) or matcha (light), at the left of the title bar. Shaped like the activity pill on the right.
+   One liquor pill (::before) slides under the chosen tea; both halves are the same width so it lines up. */
+.theme-switch {
+  position: relative;
+  margin-right: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--clay);
+  border-radius: 999px;
+  -webkit-app-region: no-drag;
+}
+.theme-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 6px) / 2);
+  border-radius: 999px;
+  background: var(--liquor);
+  transition: transform 240ms cubic-bezier(0.3, 0.7, 0.2, 1), background-color 240ms;
+}
+:root[data-theme="matcha"] .theme-switch::before { transform: translateX(calc(100% + 2px)); }
+.theme-switch button {
+  position: relative; /* above the sliding pill */
+  border: none;
+  border-radius: 999px;
+  padding: 1px 12px;
+  font-size: var(--text-s);
+  color: var(--steam-dim);
+  transition: color 240ms;
+}
+.theme-switch button:hover:not(:disabled) { color: var(--steam); background: transparent; }
+.theme-switch button[aria-checked="true"],
+.theme-switch button[aria-checked="true"]:hover { color: var(--on-liquor); cursor: default; }
 
 /* What's running right now; click it to jump there. */
 .activity {
@@ -257,7 +341,7 @@ input:focus-visible, select:focus-visible { outline: none; }
   border-radius: inherit;
   background: url("textures/grain.png") 0 0 / 256px;
   mix-blend-mode: overlay;
-  opacity: 0.06;
+  opacity: var(--grain-opacity);
 }
 
 #sidebar {
@@ -268,6 +352,11 @@ input:focus-visible, select:focus-visible { outline: none; }
   background: var(--kiln);
   padding: 10px 12px 14px;
   gap: 14px;
+  /* A very faint shade on main along the edge, under the grain (.app::after) so it stays grainy. */
+  position: relative;
+  z-index: 1;
+  box-shadow: 4px 0 36px -8px var(--edge-shadow);
+  clip-path: inset(0 -48px 0 0); /* shade to the right only, no seam between the title bar and the sidebar */
 }
 
 .side-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
@@ -301,7 +390,7 @@ input:focus-visible, select:focus-visible { outline: none; }
   margin-top: 2px;
   font-weight: 400;
 }
-.side-add::before { content: "+"; display: inline-block; width: 14px; color: var(--liquor); font-weight: 700; }
+.side-add::before { content: "+"; display: inline-block; width: 14px; color: var(--liquor-text); font-weight: 700; }
 .side-add:hover:not(:disabled) { color: var(--steam); background: var(--kiln-raised); }
 
 .side-footer { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--clay); }
@@ -331,7 +420,7 @@ input:focus-visible, select:focus-visible { outline: none; }
 .account-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
 .account-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-kind { font-size: var(--text-xs); color: var(--steam-dim); }
-.account-chip.needs-account .account-name { color: var(--liquor); }
+.account-chip.needs-account .account-name { color: var(--liquor-text); }
 
 .memory {
   display: flex;
@@ -358,9 +447,9 @@ main {
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(70% 85% at 86% 78%, rgba(217, 148, 74, 0.09), transparent 72%),
-    radial-gradient(65% 55% at 48% 104%, rgba(176, 100, 56, 0.07), transparent 70%),
-    radial-gradient(38% 48% at 102% 40%, rgba(217, 148, 74, 0.06), transparent 72%);
+    radial-gradient(70% 85% at 86% 78%, var(--glow-1), transparent 72%),
+    radial-gradient(65% 55% at 48% 104%, var(--glow-2), transparent 70%),
+    radial-gradient(38% 48% at 102% 40%, var(--glow-3), transparent 72%);
 }
 
 .empty-state {
@@ -407,7 +496,7 @@ main {
   height: 3px;
   margin-top: 14px;
   border-radius: 3px;
-  background: rgba(74, 53, 40, 0.5);
+  background: rgba(var(--clay-rgb), 0.5);
   overflow: hidden;
   opacity: 0;
   transition: opacity 400ms;
@@ -450,18 +539,18 @@ main {
   align-items: center;
   gap: 14px;
   padding: 12px 4px;
-  border-bottom: 1px solid rgba(74, 53, 40, 0.7);
+  border-bottom: 1px solid rgba(var(--clay-rgb), 0.7);
 }
 .rows > li:last-child { border-bottom: none; }
 .rows .thumb { width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0; object-fit: cover; background: var(--kiln); }
 .rows .info { flex: 1; min-width: 0; }
 .rows .title { font-weight: 500; color: var(--steam); }
 .rows a.title { cursor: pointer; text-decoration: none; }
-.rows a.title:hover { color: var(--liquor-bright); text-decoration: underline; text-underline-offset: 3px; }
+.rows a.title:hover { color: var(--liquor-text-bright); text-decoration: underline; text-underline-offset: 3px; }
 .rows .by { color: var(--steam-dim); font-size: var(--text-s); }
 .rows .desc { color: var(--steam-dim); font-size: var(--text-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rows .version { color: var(--steam-dim); font-size: var(--text-s); white-space: nowrap; }
-.rows .installed { color: var(--leaf); font-size: var(--text-s); font-weight: 500; padding: 0 14px; }
+.rows .installed { color: var(--leaf-text); font-size: var(--text-s); font-weight: 500; padding: 0 14px; }
 
 /* The version in the Mods list opens the version picker. */
 .version-button { font-size: var(--text-s); font-weight: 400; padding: 5px 10px; white-space: nowrap; }
@@ -544,12 +633,12 @@ label.sync-row { display: contents; cursor: pointer; }
 .online-head { display: flex; align-items: center; gap: 12px; }
 .online-title { flex: 1; min-width: 0; }
 .online-head [hidden], .online-body[hidden] { display: none; }
-button.outline { border-color: var(--liquor); color: var(--liquor); }
-button.outline:hover:not(:disabled) { border-color: var(--liquor-bright); color: var(--liquor-bright); background: var(--kiln); }
+button.outline { border-color: var(--liquor); color: var(--liquor-text); }
+button.outline:hover:not(:disabled) { border-color: var(--liquor-bright); color: var(--liquor-text-bright); background: var(--kiln); }
 .online-toggle { display: flex; align-items: center; gap: 10px; color: var(--steam-dim); font-size: var(--text-s); cursor: pointer; }
 .online-toggle:has(input:disabled) { cursor: default; }
 
-.online-body { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(74, 53, 40, 0.7); }
+.online-body { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(var(--clay-rgb), 0.7); }
 .online-row { display: flex; align-items: flex-start; gap: 12px; }
 .online-label { width: 78px; flex-shrink: 0; padding-top: 4px; color: var(--steam-dim); font-size: var(--text-s); }
 .online-value { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding-top: 3px; }
@@ -580,12 +669,12 @@ button.outline:hover:not(:disabled) { border-color: var(--liquor-bright); color:
    so the plain background colour matches). */
 #srv-tab-settings .save-bar { position: sticky; top: -8px; z-index: 1; background: var(--roast); padding-top: 16px; }
 .save-message { flex: 1; min-width: 0; font-size: var(--text-s); color: var(--steam-dim); }
-.save-message.ok { color: var(--leaf); }
+.save-message.ok { color: var(--leaf-text); }
 .save-message.error { color: var(--ember); }
 
 .settings-form { display: flex; flex-direction: column; gap: 22px; max-width: 720px; padding-top: 4px; }
 .settings-group h3 { font-size: var(--text-m); font-weight: 700; margin: 0 0 4px; }
-.setting { display: flex; align-items: center; gap: 24px; padding: 10px 0; border-bottom: 1px solid rgba(74, 53, 40, 0.7); }
+.setting { display: flex; align-items: center; gap: 24px; padding: 10px 0; border-bottom: 1px solid rgba(var(--clay-rgb), 0.7); }
 .setting:last-child { border-bottom: none; }
 .setting-text { flex: 1; min-width: 0; }
 .setting-label { display: block; font-weight: 500; }
@@ -633,7 +722,7 @@ dialog {
   border: 1px solid var(--clay);
   border-radius: 14px;
 }
-dialog::backdrop { background: rgba(14, 9, 6, 0.65); }
+dialog::backdrop { background: var(--backdrop); }
 .dialog-body { display: flex; flex-direction: column; gap: 12px; }
 .dialog-body h2 { font-size: var(--text-l); font-weight: 700; margin-bottom: 4px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
@@ -669,12 +758,12 @@ dialog::backdrop { background: rgba(14, 9, 6, 0.65); }
 /* Adding an existing folder skips everything above, so it sits apart from the new-server fields. */
 .existing-folder { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--clay); font-size: var(--text-s); color: var(--steam-dim); }
 .existing-folder button { padding: 5px 14px; }
-.check a { color: var(--liquor); text-underline-offset: 3px; }
-.check a:hover { color: var(--liquor-bright); }
+.check a { color: var(--liquor-text); text-underline-offset: 3px; }
+.check a:hover { color: var(--liquor-text-bright); }
 
 #account-list .avatar { width: 30px; height: 30px; }
 #account-list .kind { font-size: var(--text-xs); color: var(--steam-dim); }
-#account-list .selected-note { font-size: var(--text-s); color: var(--leaf); padding: 0 10px; }
+#account-list .selected-note { font-size: var(--text-s); color: var(--leaf-text); padding: 0 10px; }
 
 .offline-form { display: flex; gap: 8px; }
 .offline-form input { flex: 1; min-width: 0; }
@@ -685,7 +774,7 @@ dialog::backdrop { background: rgba(14, 9, 6, 0.65); }
   font-size: 30px;
   font-weight: 700;
   letter-spacing: 0.16em;
-  color: var(--liquor);
+  color: var(--liquor-text);
   user-select: all;
 }
 

@@ -2,6 +2,7 @@
 //   build/icon.png  512x512 (window icon on non-Windows, README)
 //   build/icon.ico  16-256px for Windows (window, taskbar, installer, shortcuts)
 //   build/installerSidebar.bmp  164x314 picture on the installer's welcome and finish pages
+//   build/icon-matcha.png  512x512 from build/logo-matcha.png, the title bar logo in the matcha theme
 // Every size is a whole-number enlargement with nearest-neighbour scaling, so the pixels stay crisp.
 // 24px is not a multiple of 16, so there the 16px art is centred on a 24px canvas instead of being stretched.
 // Run with: npm run icon
@@ -10,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 
 const SOURCE = path.join(__dirname, 'logo.png');
+const MATCHA_SOURCE = path.join(__dirname, 'logo-matcha.png');
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 
 // Nearest-neighbour scale of a BGRA bitmap by a whole factor, centred on a size x size canvas.
@@ -116,5 +118,10 @@ app.whenReady().then(() => {
   });
   fs.writeFileSync(path.join(__dirname, 'icon.ico'), buildIco(frames));
   fs.writeFileSync(path.join(__dirname, 'installerSidebar.bmp'), buildSidebar(src, width));
+
+  const matcha = nativeImage.createFromPath(MATCHA_SOURCE);
+  const matchaSize = matcha.getSize().width;
+  const matchaIcon = scale(matcha.toBitmap(), matchaSize, Math.floor(512 / matchaSize), 512);
+  fs.writeFileSync(path.join(__dirname, 'icon-matcha.png'), toImage(matchaIcon, 512).toPNG());
   app.quit();
 });

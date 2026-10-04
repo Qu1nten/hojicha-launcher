@@ -291,13 +291,18 @@ function renderMeta() {
   ].filter(Boolean));
 }
 
-// Leaf green -> tea liquor -> roasted brown as the launch progresses.
-const ROAST_STOPS = [[156, 178, 106], [217, 148, 74], [176, 100, 56]];
+// As the launch progresses, hojicha roasts from leaf green to tea liquor to roasted brown; matcha is whisked from
+// pale to fresh to deep green.
+const ROAST_STOPS = {
+  hojicha: [[156, 178, 106], [217, 148, 74], [176, 100, 56]],
+  matcha: [[196, 205, 140], [137, 150, 67], [108, 118, 44]],
+};
 function roastColor(fraction) {
-  const f = Math.min(1, Math.max(0, fraction)) * (ROAST_STOPS.length - 1);
-  const i = Math.min(ROAST_STOPS.length - 2, Math.floor(f));
+  const stops = ROAST_STOPS[document.documentElement.dataset.theme] || ROAST_STOPS.hojicha;
+  const f = Math.min(1, Math.max(0, fraction)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(f));
   const t = f - i;
-  const [a, b] = [ROAST_STOPS[i], ROAST_STOPS[i + 1]];
+  const [a, b] = [stops[i], stops[i + 1]];
   return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * t)).join(', ')})`;
 }
 
@@ -1135,6 +1140,27 @@ async function createInstance(event) {
 
 // ---------- Settings ----------
 
+// Hojicha (dark) or matcha (light). Switches at once; main.js saves it and recolours the window buttons.
+function showTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  for (const button of document.querySelectorAll('[data-theme-choice]')) {
+    button.setAttribute('aria-checked', String(button.dataset.themeChoice === theme));
+  }
+}
+
+async function chooseTheme(theme) {
+  const before = document.documentElement.dataset.theme;
+  if (theme === before) return;
+  showTheme(theme);
+  $('#settings-error').textContent = '';
+  try {
+    await api.saveSettings({ theme });
+  } catch (err) {
+    showTheme(before);
+    $('#settings-error').textContent = errorText(err);
+  }
+}
+
 async function saveSettings() {
   $('#settings-error').textContent = '';
   try {
@@ -1365,6 +1391,10 @@ $('#new-cancel').onclick = () => $('#new-dialog').close();
 $('#new-form').onsubmit = createInstance;
 
 $('#memory').onchange = saveSettings;
+for (const button of document.querySelectorAll('[data-theme-choice]')) {
+  button.onclick = () => chooseTheme(button.dataset.themeChoice);
+}
+showTheme(document.documentElement.dataset.theme); // set by theme.js; marks the right button straight away
 
 $('#versions-close').onclick = () => $('#versions-dialog').close();
 

@@ -28,6 +28,8 @@
 - **Online play**: let friends join a local server over the internet through [playit.gg](https://playit.gg),
   without port forwarding or changing anything on your PC or router. Public servers always check Microsoft
   accounts and use a whitelist.
+- **Two teas**: the dark roasted **Hojicha** theme or the light whisked-green **Matcha** theme, switched from the
+  title bar.
 - **Microsoft accounts**: sign in with Microsoft's official device-code flow.
 - **Updates in the launcher**: new versions download in the background and install with one click.
 
@@ -128,7 +130,8 @@ Requires [Node.js](https://nodejs.org/) 22 or newer.
 npm install
 npm start          # run the launcher (uses the installed launcher's folder, or dev-home\ when not installed)
 npm run dist       # build dist\Hojicha-Launcher-Setup-<version>.exe
-npm run icon       # regenerate build/icon.png, icon.ico and installerSidebar.bmp from the 16x16 build/logo.png
+npm run icon       # regenerate build/icon.png, icon.ico and installerSidebar.bmp from the 16x16 build/logo.png,
+                   # and build/icon-matcha.png (the matcha theme's title bar logo) from build/logo-matcha.png
 ```
 
 If `npm start` reports that Electron failed to install, your npm skipped install scripts; run
