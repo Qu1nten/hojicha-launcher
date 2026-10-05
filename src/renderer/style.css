@@ -236,6 +236,9 @@ input:focus-visible, select:focus-visible { outline: none; }
   z-index: 1;
   box-shadow: 4px 0 36px -8px var(--edge-shadow);
   clip-path: inset(0 -48px 0 0); /* shade to the right only, no seam between the title bar and the sidebar */
+  /* One pixel over the sidebar: the window is zoomed to 110%, so their shared edge can fall between two screen
+     pixels and let the darker background show through as a thin line. */
+  margin-bottom: -1px;
 }
 .brand img { image-rendering: pixelated; } /* pixel-art logo: keep every pixel sharp */
 /* The cup follows the theme: roasted hojicha, or a bowl of matcha. */
@@ -370,17 +373,34 @@ input:focus-visible, select:focus-visible { outline: none; }
 
 .side-list { list-style: none; margin: 0; padding: 0; }
 .side-list li {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
   border-radius: 6px;
-  cursor: pointer;
 }
 .side-list li:hover { background: var(--kiln-raised); }
 /* The selected item takes the main area's colour, so it reads as connected to it. */
 .side-list li.active { background: var(--roast); }
-.side-text { display: flex; flex-direction: column; min-width: 0; }
+/* The name is a button that covers the whole row (its ::before), under the item icon. */
+.side-select {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  font-weight: 400;
+}
+.side-select:hover:not(:disabled) { background: none; border-color: transparent; }
+.side-select::before { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.side-select:focus-visible { outline: none; }
+.side-list li:has(.side-select:focus-visible) { outline: 2px solid var(--liquor); outline-offset: -2px; }
+.side-list .item-icon { z-index: 1; }
 .side-list .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-list .sub { font-size: var(--text-xs); color: var(--steam-dim); display: flex; align-items: center; gap: 6px; }
 /* Instance and server icons: a Minecraft item, the size of the account's skin face. Hover darkens it with a +. */
@@ -625,6 +645,14 @@ button.play:not(:disabled) .play-fill { display: none; }
 
 .tab { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 0 24px; }
 .tab-log { padding-bottom: 20px; }
+/* Mods and Browse: the bar on top stays put and only the list under it scrolls, so the bar needs no background
+   of its own and the warm light shows through it like everywhere else. */
+.tab-split { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 0; }
+.tab-split[hidden] { display: none; }
+.tab-split > :not(.tab-scroll) { flex-shrink: 0; }
+.tab-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
+/* Once scrolled, the rows fade out just before they reach the bar instead of being cut off (app.js sets it). */
+.tab-scroll.scrolled { mask-image: linear-gradient(to bottom, transparent, #000 16px); }
 
 .intro { color: var(--steam-dim); max-width: 64ch; padding: 10px 0 6px; font-size: var(--text-s); }
 
@@ -655,21 +683,34 @@ button.play:not(:disabled) .play-fill { display: none; }
 
 /* ---------- Mods tab ---------- */
 
-/* Filter, count and Update all. It stays in view while the list scrolls under it (the glow never reaches this
-   high, so the plain background colour matches). */
-.mods-bar {
-  position: sticky;
-  top: -8px;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 0 8px;
-  background: var(--roast);
-}
+/* Filter, count and Update all: laid out like the search bar in Browse. */
+.mods-bar { display: flex; align-items: center; gap: 8px; padding: 12px 0 6px; }
 .mods-bar[hidden] { display: none; }
-.mods-bar input { width: 240px; }
-.mod-count { flex: 1; min-width: 0; font-size: var(--text-s); color: var(--steam-dim); }
+.mods-bar input { flex: 1; min-width: 0; }
+.mod-count { flex-shrink: 0; padding: 0 6px; font-size: var(--text-s); color: var(--steam-dim); white-space: nowrap; }
+
+/* All, Mods, Resource packs, Shaders: under the filter, the chosen one filled in. */
+.kinds { display: flex; gap: 4px; padding: 0 0 8px; }
+.kinds[hidden] { display: none; }
+.kinds button { padding: 3px 12px; border-color: transparent; border-radius: 999px; font-size: var(--text-s); font-weight: 400; color: var(--steam-dim); }
+.kinds button:hover:not(:disabled) { color: var(--steam); background: var(--kiln); border-color: transparent; }
+.kinds button.active, .kinds button.active:hover:not(:disabled) { color: var(--steam); background: var(--kiln-raised); }
+
+/* In All, a thin line with the next kind's name between mods, resource packs and shaders. */
+.mod-list > li.kind-divider {
+  gap: 10px;
+  padding: 16px 4px 4px;
+  border-bottom: none;
+  font-size: var(--text-xs);
+  color: var(--steam-dim);
+}
+.mod-list > li.kind-divider::after { content: ""; flex: 1; border-top: 1px solid var(--clay); }
+/* The row above a divider needs no line of its own. */
+.mod-list > li:has(+ li.kind-divider) { border-bottom: none; }
+
+/* A pack in a folder shared with other instances. */
+.shared-mark { display: inline-flex; margin-left: 8px; vertical-align: -2px; font-size: 14px; color: var(--steam-dim); }
+.switch-space { width: 38px; flex-shrink: 0; }
 
 /* Dense rows so a big modpack fits: name, any update, the version, the on/off switch, and Remove on hover. */
 .mod-list > li.mod-row { gap: 12px; padding: 6px 4px; }
@@ -895,6 +936,7 @@ dialog {
 dialog::backdrop { background: var(--backdrop); }
 .dialog-body { display: flex; flex-direction: column; gap: 12px; }
 .dialog-body h2 { font-size: var(--text-l); font-weight: 700; margin-bottom: 4px; }
+#close-text { white-space: pre-line; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .dialog-actions.start { justify-content: flex-start; margin-top: 0; }
 

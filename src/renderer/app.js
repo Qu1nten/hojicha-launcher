@@ -27,7 +27,8 @@ const state = {
   logs: {},   // id -> string[]
   search: { query: '', type: 'mod', offset: 0, total: 0, done: false },
   versions: null,
-  mods: { id: null, list: [], filter: '', busy: false }, // the Mods tab's list, for the instance it was loaded for
+  // The Installed tab, for the instance it was loaded for; view is All or one kind (mod, resourcepack, shader).
+  mods: { id: null, content: { mod: [], resourcepack: [], shader: [] }, filter: '', view: 'all', busy: false },
   modUpdates: {}, // instance id -> { at, updates: file -> { versionId, versionNumber } }, or { pending: true }
 };
 
@@ -63,6 +64,8 @@ const ICONS = {
   block: '<path d="M8 1.8l5.5 3.1v6.2L8 14.2l-5.5-3.1V4.9z"/><path d="M2.5 4.9L8 8l5.5-3.1M8 8v6.2"/>',
   hourglass: '<path d="M4 2h8M4 14h8"/><path d="M5 2c0 3.4 6 3.2 6 6s-6 2.6-6 6M11 2c0 3.4-6 3.2-6 6s6 2.6 6 6"/>',
   clock: '<circle cx="8" cy="8" r="6.2"/><path d="M8 4.6V8l2.3 1.6"/>',
+  // Two chain links, each open where it hooks into the other, on the diagonal.
+  linked: '<g transform="rotate(-45 8 8)"><path d="M5.6 5.8H3.2a2.2 2.2 0 0 0 0 4.4h4.2a2.2 2.2 0 0 0 1.9-3.3"/><path d="M10.4 10.2h2.4a2.2 2.2 0 0 0 0-4.4H8.6a2.2 2.2 0 0 0-1.9 3.3"/></g>',
 };
 
 function icon(name) {
@@ -134,8 +137,7 @@ function itemIcon(kind, thing) {
     title: 'Change icon',
     ariaLabel: `Change the icon of ${thing.name}`,
   }, [thing.iconUrl ? el('img', { src: thing.iconUrl, alt: '' }) : icon('block')]);
-  button.onclick = (event) => {
-    event.stopPropagation();
+  button.onclick = () => {
     // A mouse click (detail > 0) lets go of focus first, so closing the picker doesn't hand focus back and ring
     // the icon. From the keyboard, focus comes back as usual.
     if (event.detail > 0) button.blur();
@@ -144,38 +146,42 @@ function itemIcon(kind, thing) {
   return button;
 }
 
+// A sidebar row: the item icon (its own button, for the icon picker) and the name, a button that covers the whole
+// row, so a click anywhere opens it and the keyboard reaches it with Tab, Enter and Space.
+function sideRow(kind, thing, active, sub, running, open) {
+  const select = el('button', { type: 'button', className: 'side-select' }, [
+    el('span', { className: 'name', textContent: thing.name }),
+    el('span', { className: 'sub' }, [sub, running ? el('span', { className: 'running-dot', title: running }) : null]),
+  ]);
+  if (active) select.setAttribute('aria-current', 'page');
+  select.onclick = open;
+  const row = el('li', { className: active ? 'active' : '' }, [itemIcon(kind, thing), select]);
+  row.dataset.key = `${kind}:${thing.id}`;
+  return row;
+}
+
 function renderSidebar() {
-  $('#instance-list').replaceChildren(...state.instances.map((inst) => {
-    const active = state.view === 'instance' && inst.id === state.selected;
-    const item = el('li', { className: active ? 'active' : '' }, [
-      itemIcon('instance', inst),
-      el('div', { className: 'side-text' }, [
-        el('span', { className: 'name', textContent: inst.name }),
-        el('span', { className: 'sub' }, [
-          loaderLabel(inst),
-          state.status[inst.id]?.state === 'running' ? el('span', { className: 'running-dot', title: 'Playing' }) : null,
-        ]),
-      ]),
-    ]);
-    item.onclick = () => selectInstance(inst.id);
-    return item;
-  }));
-  $('#server-list').replaceChildren(...state.servers.map((server) => {
-    const active = state.view === 'server' && server.id === state.selectedServer;
-    const running = ['starting', 'running', 'stopping'].includes(state.serverStatus[server.id]?.state);
-    const item = el('li', { className: active ? 'active' : '' }, [
-      itemIcon('server', server),
-      el('div', { className: 'side-text' }, [
-        el('span', { className: 'name', textContent: server.name }),
-        el('span', { className: 'sub' }, [
-          `${serverFlavor(server)} ${server.mcVersion}`,
-          running ? el('span', { className: 'running-dot', title: 'Running' }) : null,
-        ]),
-      ]),
-    ]);
-    item.onclick = () => selectServer(server.id);
-    return item;
-  }));
+  // The rows are rebuilt; keep keyboard focus on the same row and button (opening a row redraws the list).
+  const focused = document.activeElement?.closest?.('#sidebar li[data-key]');
+  const focusKey = focused?.dataset.key;
+  const focusClass = document.activeElement?.classList.contains('item-icon') ? 'item-icon' : 'side-select';
+  $('#instance-list').replaceChildren(...state.instances.map((inst) => sideRow(
+    'instance', inst,
+    state.view === 'instance' && inst.id === state.selected,
+    loaderLabel(inst),
+    state.status[inst.id]?.state === 'running' ? 'Playing' : '',
+    () => selectInstance(inst.id),
+  )));
+  $('#server-list').replaceChildren(...state.servers.map((server) => sideRow(
+    'server', server,
+    state.view === 'server' && server.id === state.selectedServer,
+    `${serverFlavor(server)} ${server.mcVersion}`,
+    ['starting', 'running', 'stopping'].includes(state.serverStatus[server.id]?.state) ? 'Running' : '',
+    () => selectServer(server.id),
+  )));
+  if (focusKey) {
+    [...document.querySelectorAll('#sidebar li[data-key]')].find((li) => li.dataset.key === focusKey)?.querySelector(`.${focusClass}`)?.focus();
+  }
   $('#open-settings').classList.toggle('active', state.view === 'settings');
   renderActivity();
 }
@@ -208,21 +214,44 @@ function renderActivity() {
   pill.onclick = () => active[0]?.go();
 }
 
-// ---------- Closing with servers running ----------
+// ---------- Closing with something running ----------
 
+// Closing the launcher while a server, a game, or an instance getting ready is running: say what happens to each.
+// Servers save and stop first; a game can only end with the launcher, without saving; getting ready just stops.
 let stoppingToClose = false;
+let closeStopsServers = false;
 
-api.onCloseRequested((names) => {
+api.onCloseRequested(({ servers, games }) => {
   if (stoppingToClose) return; // already stopping; the window closes when that's done
-  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-  const plural = names.length > 1;
-  $('#close-title').textContent = plural ? 'Stop the servers first?' : 'Stop the server first?';
-  $('#close-text').textContent = `${list} ${plural ? 'are' : 'is'} still running. Hojicha saves the world and stops `
-    + `${plural ? 'them' : 'it'} before closing, which can take up to a minute.`;
+  const playing = games.filter((g) => !g.preparing).map((g) => g.name);
+  const preparing = games.filter((g) => g.preparing).map((g) => g.name);
+  const isAre = (names) => (names.length > 1 ? 'are' : 'is');
+  const itThem = (names) => (names.length > 1 ? 'them' : 'it');
+  closeStopsServers = servers.length > 0;
+
+  const sentences = [];
+  if (playing.length) {
+    sentences.push(`${listNames(playing)} ${isAre(playing)} still running. Closing Hojicha closes ${itThem(playing)} too, `
+      + 'and anything since the last autosave is lost.');
+  }
+  if (preparing.length) sentences.push(`${listNames(preparing)} ${isAre(preparing)} still getting ready to play. Closing stops that.`);
+  if (servers.length) {
+    sentences.push(`${listNames(servers)} ${servers.length > 1 ? 'are' : 'is'} still running. Hojicha saves and stops `
+      + `${itThem(servers)} before closing, which can take up to a minute.`);
+  }
+
+  const onlyServers = !games.length;
+  $('#close-title').textContent = onlyServers ? (servers.length > 1 ? 'Stop the servers first?' : 'Stop the server first?')
+    : playing.length && !preparing.length && !servers.length ? (playing.length > 1 ? 'Close the games too?' : 'Close the game too?')
+      : 'Close Hojicha?';
+  $('#close-text').textContent = sentences.join('\n'); // one line per thing still going (white-space: pre-line)
+  $('#close-note').textContent = playing.length ? 'To keep everything, quit from the game\'s own menu first, then close Hojicha.' : '';
+  $('#close-note').hidden = !playing.length;
   $('#close-error').textContent = '';
   $('#close-confirm').disabled = false;
-  $('#close-confirm').textContent = plural ? 'Stop servers and close' : 'Stop server and close';
+  $('#close-confirm').textContent = onlyServers ? (servers.length > 1 ? 'Stop servers and close' : 'Stop server and close') : 'Close anyway';
   $('#close-cancel').disabled = false;
+  $('#close-cancel').textContent = onlyServers ? 'Keep running' : 'Keep Hojicha open';
   if (!$('#close-dialog').open) $('#close-dialog').showModal();
 });
 
@@ -231,7 +260,7 @@ $('#close-confirm').onclick = async () => {
   stoppingToClose = true;
   $('#close-confirm').disabled = true;
   $('#close-cancel').disabled = true;
-  $('#close-confirm').textContent = 'Saving and stopping…';
+  $('#close-confirm').textContent = closeStopsServers ? 'Saving and stopping…' : 'Closing…';
   try {
     await api.stopServersAndClose();
   } catch (err) {
@@ -282,7 +311,7 @@ function renderMain() {
   $('#settings-view').hidden = !showSettings;
   $('#server-view').hidden = !showServer;
   $('#instance-view').hidden = !showInstance;
-  if (showSettings) renderSettings();
+  if (showSettings) renderAppSettings();
   if (showServer) renderServer();
   if (showInstance) renderInstance();
   remember();
@@ -343,6 +372,16 @@ function stepHistory(direction) {
   if (Date.now() - nav.lastStep < 80) return;
   nav.lastStep = Date.now();
   if (document.querySelector('dialog[open]')) return;
+  // Stepping away from unsaved server edits: ask first, then take the same step.
+  if (state.view === 'server' && hasUnsaved()) {
+    askDiscard().then((discard) => {
+      if (!discard) return;
+      dropEdits();
+      nav.lastStep = 0;
+      stepHistory(direction);
+    });
+    return;
+  }
   for (let i = nav.index + direction; i >= 0 && i < nav.stack.length; i += direction) {
     const place = nav.stack[i];
     const exists = place.view === 'settings' ? true
@@ -389,7 +428,7 @@ function resetSearch() {
 }
 
 function selectInstance(id) {
-  if (state.view === 'server' && !confirmDiscard()) return;
+  if (state.view === 'server' && !confirmDiscard(() => selectInstance(id))) return;
   if (state.view === 'instance' && id === state.selected) return;
   const changed = id !== state.selected;
   state.selected = id;
@@ -588,18 +627,23 @@ function plural(n, one, many) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+// The Installed tab: mods, resource packs and shaders. All shows them one kind after the other, in this order.
+const KINDS = [
+  { type: 'mod', folder: 'mods', one: 'mod', many: 'mods', heading: 'Mods' },
+  { type: 'resourcepack', folder: 'resourcepacks', one: 'resource pack', many: 'resource packs', heading: 'Resource packs' },
+  { type: 'shader', folder: 'shaderpacks', one: 'shader', many: 'shaders', heading: 'Shaders' },
+];
+
 async function loadMods() {
   const inst = current();
   if (state.mods.id !== inst.id) {
-    state.mods = { id: inst.id, list: [], filter: '', busy: isBusy(inst.id) };
+    state.mods = { ...state.mods, id: inst.id, content: { mod: [], resourcepack: [], shader: [] }, filter: '', busy: isBusy(inst.id) };
     $('#mod-filter').value = '';
   }
-  if (inst.loader !== 'vanilla') {
-    const list = await api.listMods(inst.id);
-    if (current()?.id !== inst.id) return; // another instance was picked meanwhile
-    state.mods.list = list;
-    checkModUpdates(inst);
-  }
+  const content = await api.listContent(inst.id);
+  if (current()?.id !== inst.id) return; // another instance was picked meanwhile
+  state.mods.content = content;
+  checkModUpdates(inst);
   renderMods();
 }
 
@@ -607,7 +651,7 @@ async function loadMods() {
 function checkModUpdates(inst) {
   const known = state.modUpdates[inst.id];
   if (known?.pending || (known && Date.now() - known.at < 10 * 60 * 1000)) return;
-  if (!state.mods.list.some((m) => m.fromModrinth)) return;
+  if (!state.mods.content.mod.some((m) => m.fromModrinth)) return;
   state.modUpdates[inst.id] = { pending: true };
   api.checkModUpdates(inst.id)
     .then((updates) => { state.modUpdates[inst.id] = { at: Date.now(), updates }; })
@@ -615,44 +659,137 @@ function checkModUpdates(inst) {
     .then(() => { if (state.tab === 'mods' && current()?.id === inst.id) renderMods(); });
 }
 
+// Opens Browse on the given kind, for the "nothing here yet" rows.
+function browseFor(type) {
+  const button = el('button', { className: 'primary', textContent: 'Browse Modrinth' });
+  button.onclick = () => {
+    if ($('#search-type').value !== type) {
+      $('#search-type').value = type;
+      invalidateSearch();
+    }
+    showTab('browse');
+  };
+  return button;
+}
+
 function renderMods() {
   const inst = current();
   const list = $('#mod-list');
-  const bar = $('#mods-bar');
+  const view = state.mods.view;
+  const content = state.mods.content;
   state.mods.busy = isBusy(inst.id);
-  if (inst.loader === 'vanilla') {
-    bar.hidden = true;
-    list.replaceChildren(emptyRow("This instance has no mod loader, so it can't use mods. Create a Fabric instance to add mods."));
-    return;
+
+  const total = KINDS.reduce((n, kind) => n + content[kind.type].length, 0);
+  $('#mods-bar').hidden = $('#content-kinds').hidden = !total;
+  for (const button of document.querySelectorAll('#content-kinds button')) {
+    const on = button.dataset.kind === view;
+    button.classList.toggle('active', on);
+    button.setAttribute('aria-pressed', String(on));
   }
-  const mods = state.mods.list;
-  if (!mods.length) {
-    bar.hidden = true;
-    const browse = el('button', { className: 'primary', textContent: 'Browse Modrinth' });
-    browse.onclick = () => showTab('browse');
-    list.replaceChildren(emptyRow('No mods yet.', browse));
+  if (!total) {
+    list.replaceChildren(emptyRow('Nothing installed yet.', browseFor('mod')));
     return;
   }
 
   const updates = state.modUpdates[inst.id]?.updates || {};
   const query = state.mods.filter.trim().toLowerCase();
-  const shown = query ? mods.filter((m) => `${m.title} ${m.file}`.toLowerCase().includes(query)) : mods;
-  const off = mods.filter((m) => !m.enabled).length;
-  const updatable = mods.filter((m) => updates[m.file]);
+  const matches = (item) => !query || `${item.title} ${item.file}`.toLowerCase().includes(query);
+  const kinds = view === 'all' ? KINDS : KINDS.filter((kind) => kind.type === view);
+  const shown = Object.fromEntries(kinds.map((kind) => [kind.type, content[kind.type].filter(matches)]));
+  const shownCount = kinds.reduce((n, kind) => n + shown[kind.type].length, 0);
 
-  bar.hidden = false;
-  $('#mod-count').textContent = [
-    query ? `${shown.length} of ${plural(mods.length, 'mod', 'mods')}` : plural(mods.length, 'mod', 'mods'),
-    off ? `${off} switched off` : '',
-  ].filter(Boolean).join(', ');
+  // "12 mods, 3 resource packs", "12 mods, 1 switched off", or "3 of 16" while filtering.
+  const off = content.mod.filter((m) => !m.enabled).length;
+  const counts = kinds.filter((kind) => content[kind.type].length)
+    .map((kind) => plural(content[kind.type].length, kind.one, kind.many));
+  if (view === 'mod' && off) counts.push(`${off} switched off`);
+  const all = kinds.reduce((n, kind) => n + content[kind.type].length, 0);
+  $('#mod-count').textContent = query ? `${shownCount} of ${all}` : counts.join(', ');
+
+  const updatable = view === 'all' || view === 'mod' ? content.mod.filter((m) => updates[m.file]) : [];
   const updateAll = $('#mods-update-all');
   updateAll.hidden = updatable.length < 2;
   updateAll.textContent = `Update all ${updatable.length}`;
   updateAll.disabled = state.mods.busy;
 
-  list.replaceChildren(...(shown.length
-    ? shown.map((mod) => modRow(inst, mod, updates[mod.file]))
-    : [emptyRow(`No mods match "${state.mods.filter.trim()}".`)]));
+  const rows = [];
+  for (const kind of kinds) {
+    const items = shown[kind.type];
+    if (view === 'all') {
+      if (!items.length) continue;
+      // A thin line, with the kind's name, between one kind and the next.
+      if (rows.length) rows.push(el('li', { className: 'kind-divider', role: 'presentation' }, [el('span', { textContent: kind.heading })]));
+    } else if (!items.length) {
+      if (query) break;
+      if (kind.type === 'mod' && inst.loader === 'vanilla') rows.push(emptyRow("This instance has no mod loader, so it can't use mods. Create a Fabric instance to add mods."));
+      else rows.push(emptyRow(`No ${kind.many} yet.`, browseFor(kind.type)));
+      continue;
+    }
+    for (const item of items) rows.push(kind.type === 'mod' ? modRow(inst, item, updates[item.file]) : installedPackRow(inst, kind, item));
+  }
+  if (!rows.length) rows.push(emptyRow(`Nothing matches "${state.mods.filter.trim()}".`));
+  list.replaceChildren(...rows);
+}
+
+// Asks in the launcher's own dialog. Resolves true for the confirm button, false for the other or Escape.
+function askConfirm({ title, text, note = '', confirm, cancel = 'Cancel' }) {
+  const dialog = $('#confirm-dialog');
+  $('#confirm-title').textContent = title;
+  $('#confirm-text').textContent = text;
+  $('#confirm-note').textContent = note;
+  $('#confirm-note').hidden = !note;
+  $('#confirm-ok').textContent = confirm;
+  $('#confirm-cancel').textContent = cancel;
+  return new Promise((resolve) => {
+    const answer = (yes) => {
+      dialog.close();
+      resolve(yes);
+    };
+    $('#confirm-ok').onclick = () => answer(true);
+    $('#confirm-cancel').onclick = () => answer(false);
+    dialog.oncancel = (event) => {
+      event.preventDefault();
+      answer(false);
+    };
+    dialog.showModal();
+  });
+}
+
+// Removes a mod or pack. A shared pack is also in other instances: say which before it goes from all of them.
+async function removeItem(inst, kind, item) {
+  if (item.shared) {
+    const others = state.instances.filter((other) => other.id !== inst.id && other.sync?.[kind.folder] !== false).map((other) => other.name);
+    if (others.length) {
+      const remove = await askConfirm({
+        title: `Remove ${item.title} from every instance?`,
+        text: `This ${kind.one} is shared with ${listNames(others)}, so removing it here removes it there too.`,
+        // Named as the switch in the Sync tab is: "Resource packs", "Shader packs".
+        note: `To keep it in the others, first switch off ${SYNC_ITEMS.find(([item]) => item === kind.folder)[1]} in this instance's Sync tab.`,
+        confirm: 'Remove everywhere',
+        cancel: 'Keep it',
+      });
+      if (!remove) return;
+    }
+  }
+  try {
+    await api.removeContent(inst.id, kind.type, item.file);
+  } catch (err) {
+    state.status[inst.id] = { state: 'error', text: errorText(err) };
+    renderStatus();
+  }
+  modsChanged(inst.id);
+  loadMods();
+}
+
+// "A", "A and B", "A, B and C".
+function listNames(names) {
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+function removeButton(inst, kind, item) {
+  const remove = el('button', { className: 'quiet danger mod-remove', textContent: 'Remove', ariaLabel: `Remove ${item.title}` });
+  remove.onclick = () => removeItem(inst, kind, item);
+  return remove;
 }
 
 function modRow(inst, mod, update) {
@@ -702,20 +839,34 @@ function modRow(inst, mod, update) {
     renderMods();
   };
 
-  const remove = el('button', { className: 'quiet danger mod-remove', textContent: 'Remove', ariaLabel: `Remove ${mod.title}` });
-  remove.onclick = async () => {
-    await api.removeMod(inst.id, mod.file);
-    modsChanged(inst.id);
-    loadMods();
-  };
-
   return el('li', { className: `mod-row${mod.enabled ? '' : ' off'}`, title: mod.file }, [
     thumb(mod.iconUrl),
     el('div', { className: 'info' }, [el('div', { className: 'title', textContent: mod.title })]),
     updateButton,
     version,
     toggle,
-    remove,
+    removeButton(inst, KINDS[0], mod),
+  ]);
+}
+
+// A resource pack or shader. Which ones are on is chosen in the game, so there's no switch; an empty space of the
+// same size keeps the versions lined up with the mods'.
+function installedPackRow(inst, kind, pack) {
+  const title = el('div', { className: 'title' }, [pack.title]);
+  if (pack.shared) {
+    const others = state.instances.filter((other) => other.id !== inst.id && other.sync?.[kind.folder] !== false).map((other) => other.name);
+    title.append(el('span', {
+      className: 'shared-mark',
+      title: others.length ? `Shared with ${listNames(others)}` : `Shared: every instance that syncs ${kind.many} has it`,
+      ariaLabel: 'Shared with other instances',
+    }, [icon('linked')]));
+  }
+  return el('li', { className: 'mod-row', title: pack.file }, [
+    thumb(pack.iconUrl),
+    el('div', { className: 'info' }, [title]),
+    el('span', { className: 'version', textContent: pack.fromModrinth ? shortVersion(pack.versionNumber, inst) : 'Added by hand', title: pack.versionNumber }),
+    el('span', { className: 'switch-space', ariaHidden: 'true' }),
+    removeButton(inst, kind, pack),
   ]);
 }
 
@@ -960,7 +1111,7 @@ async function refreshServers(selectId) {
 }
 
 function selectServer(id) {
-  if (id !== state.selectedServer && !confirmDiscard()) return;
+  if (id !== state.selectedServer && !confirmDiscard(() => selectServer(id))) return;
   state.selectedServer = id;
   if (state.serverTab === 'settings') loadSettings();
   if (state.serverTab === 'files') loadFiles();
@@ -1117,8 +1268,13 @@ $('#srv-public').onchange = async (event) => {
     await updateServer(api.setServerPublic(server.id, on));
     return;
   }
-  const what = on ? 'on' : 'off';
-  if (!confirm(`Restart ${server.name} to turn online play ${what}? Anyone playing on it is disconnected.`)) {
+  const restart = await askConfirm({
+    title: `Restart ${server.name}?`,
+    text: `Turning online play ${on ? 'on' : 'off'} needs a restart. Anyone playing on it is disconnected for a moment.`,
+    confirm: 'Restart server',
+    cancel: 'Not now',
+  });
+  if (!restart) {
     event.target.checked = !on;
     return;
   }
@@ -1140,7 +1296,14 @@ $('#whitelist-form').onsubmit = async (event) => {
 };
 $('#copy-address').onclick = (event) => copyText($('#online-address').textContent, event.target);
 $('#playit-unlink').onclick = async () => {
-  if (!confirm('Disconnect playit.gg? Online play stops working until you set it up again. Your tunnel stays in your playit.gg account.')) return;
+  const disconnect = await askConfirm({
+    title: 'Disconnect playit.gg?',
+    text: 'Online play stops working until you set it up again.',
+    note: 'Your tunnel stays in your playit.gg account.',
+    confirm: 'Disconnect',
+    cancel: 'Stay connected',
+  });
+  if (!disconnect) return;
   try {
     await api.playitUnlink();
     playitState = await api.playitStatus();
@@ -1154,7 +1317,7 @@ $('#playit-unlink').onclick = async () => {
 // Console | Online play | Settings | Files tabs on the server page.
 const SERVER_TABS = ['console', 'online', 'settings', 'files'];
 function showServerTab(tab) {
-  if (tab !== state.serverTab && !confirmDiscard()) return;
+  if (tab !== state.serverTab && !confirmDiscard(() => showServerTab(tab))) return;
   state.serverTab = tab;
   for (const button of document.querySelectorAll('[data-srv-tab]')) button.classList.toggle('active', button.dataset.srvTab === tab);
   for (const name of SERVER_TABS) $(`#srv-tab-${name}`).hidden = name !== tab;
@@ -1340,10 +1503,36 @@ $('#settings-restart').onclick = () => restartServer($('#settings-restart'), $('
 let fileState = { serverId: null, files: [], path: null, saved: '', modified: null };
 const fileDirty = () => fileState.path !== null && $('#file-text').value !== fileState.saved;
 
-// Unsaved edits in the Settings form or an open file: ask before they're thrown away.
-function confirmDiscard() {
-  const unsaved = (state.serverTab === 'settings' && Object.keys(settingsState.edits).length) || (state.serverTab === 'files' && fileDirty());
-  return !unsaved || confirm('You have unsaved changes. Discard them?');
+// Unsaved edits in a server's Settings form or open file.
+function hasUnsaved() {
+  return Boolean((state.serverTab === 'settings' && Object.keys(settingsState.edits).length) || (state.serverTab === 'files' && fileDirty()));
+}
+
+function askDiscard(options = {}) {
+  return askConfirm({
+    title: 'Discard your changes?',
+    text: state.serverTab === 'files' ? `Your changes to ${fileState.path} aren't saved yet.` : "Your changes to this server's settings aren't saved yet.",
+    confirm: 'Discard changes',
+    cancel: 'Keep editing',
+    ...options,
+  });
+}
+
+function dropEdits() {
+  settingsState.edits = {};
+  if (fileState.path !== null) $('#file-text').value = fileState.saved;
+}
+
+// Leaving a server's Settings or Files tab loses unsaved edits. With none, returns true and the caller carries on.
+// Otherwise it asks, returns false, and if the edits may go, drops them and runs retry (the same step again).
+function confirmDiscard(retry) {
+  if (!hasUnsaved()) return true;
+  askDiscard().then((discard) => {
+    if (!discard) return;
+    dropEdits();
+    retry();
+  });
+  return false;
 }
 
 async function loadFiles() {
@@ -1372,8 +1561,10 @@ function renderFileList() {
     ...files.map((file) => {
       const name = file.group === 'Server' ? file.path : file.path.split('/').slice(1).join('/');
       const button = el('button', { type: 'button', textContent: name, title: file.path, className: file.path === fileState.path ? 'active' : '' });
-      button.onclick = () => {
-        if (file.path !== fileState.path && (!fileDirty() || confirm('You have unsaved changes. Discard them?'))) openFile(file.path);
+      button.onclick = async () => {
+        if (file.path === fileState.path) return;
+        if (fileDirty() && !(await askDiscard())) return;
+        openFile(file.path);
       };
       return button;
     }),
@@ -1428,8 +1619,13 @@ $('#file-save').onclick = async () => {
     setMessage($('#file-message'), errorText(err), 'error');
   }
 };
-$('#file-reload').onclick = () => {
-  if (!fileDirty() || confirm('You have unsaved changes. Discard them?')) openFile(fileState.path);
+$('#file-reload').onclick = async () => {
+  if (fileDirty() && !(await askDiscard({
+    title: `Reload ${fileState.path}?`,
+    text: 'It opens as it is on disk, and your unsaved changes are lost.',
+    confirm: 'Reload',
+  }))) return;
+  openFile(fileState.path);
 };
 $('#file-restart').onclick = () => restartServer($('#file-restart'), $('#file-message'));
 
@@ -1729,7 +1925,7 @@ let appSettings = { memoryMb: 4096, javaPath: '', theme: 'hojicha' };
 let updateMessage = ''; // the answer to the last "Check for updates"
 
 function openSettings() {
-  if (state.view === 'server' && !confirmDiscard()) return;
+  if (state.view === 'server' && !confirmDiscard(openSettings)) return;
   state.view = 'settings';
   renderSidebar();
   renderMain();
@@ -1756,7 +1952,7 @@ function memoryOptions(select, currentMb, defaultLabel) {
   select.value = currentMb ? String(currentMb) : '';
 }
 
-function renderSettings() {
+function renderAppSettings() {
   memoryOptions($('#memory'), appSettings.memoryMb);
   $('#memory-help').textContent = '4 GB is enough for most games. Big modpacks may need more.';
 
@@ -1778,7 +1974,7 @@ async function saveAppSettings(patch) {
   } catch (err) {
     showAppMessage(errorText(err), true);
   }
-  renderSettings();
+  renderAppSettings();
 }
 
 // Hojicha (dark) or matcha (light), in the title bar. Switches at once; main.js saves it and recolours the window
@@ -2055,7 +2251,14 @@ $('#open-folder').onclick = () => api.openFolder(state.selected);
 
 $('#delete-instance').onclick = async () => {
   const inst = current();
-  if (!confirm(`Delete "${inst.name}" with its mods? Anything in shared sync folders, like synced worlds, is kept.`)) return;
+  const remove = await askConfirm({
+    title: `Delete ${inst.name}?`,
+    text: "Its mods, and any worlds or packs it doesn't share with other instances, are deleted. This can't be undone.",
+    note: 'Shared worlds, resource packs and shaders stay for the other instances.',
+    confirm: 'Delete instance',
+    cancel: 'Keep it',
+  });
+  if (!remove) return;
   try {
     await api.deleteInstance(inst.id);
     state.selected = null;
@@ -2066,6 +2269,11 @@ $('#delete-instance').onclick = async () => {
   }
 };
 
+// The Mods and Browse lists fade under their bar only once scrolled, so the first row stays crisp at the top.
+for (const scroller of document.querySelectorAll('.tab-scroll')) {
+  scroller.addEventListener('scroll', () => scroller.classList.toggle('scrolled', scroller.scrollTop > 0), { passive: true });
+}
+
 $('#mod-filter').oninput = () => {
   state.mods.filter = $('#mod-filter').value;
   renderMods();
@@ -2074,7 +2282,14 @@ $('#mod-filter').oninput = () => {
 $('#mods-update-all').onclick = () => {
   const inst = current();
   const updates = state.modUpdates[inst.id]?.updates || {};
-  updateMods(inst, state.mods.list.filter((m) => updates[m.file]));
+  updateMods(inst, state.mods.content.mod.filter((m) => updates[m.file]));
+};
+
+for (const button of document.querySelectorAll('#content-kinds button')) {
+  button.onclick = () => {
+    state.mods.view = button.dataset.kind;
+    renderMods();
+  };
 };
 
 $('#search-form').onsubmit = (event) => {
@@ -2124,7 +2339,7 @@ $('#java-pick').onclick = async () => {
   } catch (err) {
     showAppMessage(errorText(err), true);
   }
-  renderSettings();
+  renderAppSettings();
 };
 $('#update-check').onclick = async () => {
   const button = $('#update-check');
@@ -2287,7 +2502,13 @@ $('#srv-open-folder').onclick = () => api.openServerFolder(state.selectedServer)
 
 $('#srv-remove').onclick = async () => {
   const server = currentServer();
-  if (!confirm(`Remove "${server.name}" from Hojicha? The server folder itself stays where it is.`)) return;
+  const remove = await askConfirm({
+    title: `Remove ${server.name} from Hojicha?`,
+    text: 'It leaves the list. The server folder stays where it is, with its worlds, so you can add it again later.',
+    confirm: 'Remove server',
+    cancel: 'Keep it',
+  });
+  if (!remove) return;
   try {
     await api.removeServer(server.id);
     await refreshServers();

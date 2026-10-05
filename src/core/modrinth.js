@@ -1,15 +1,90 @@
 const fs = require('fs');
 const path = require('path');
+const paths = require('./paths');
 const instances = require('./instances');
+const sync = require('./sync');
+const { readJson, writeJson } = require('./util');
 const { fetchJson, hashFile, downloadFile } = require('./http');
 
 const API = 'https://api.modrinth.com/v2';
 
 // Modrinth project type -> folder inside the game directory.
 const FOLDERS = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks' };
+const PACK_FOLDERS = [FOLDERS.resourcepack, FOLDERS.shader];
+
+// Resource packs and shaders usually live in folders shared between instances (sync.js). Their Modrinth details
+// are kept with the shared folder, in synced/content.json, so every instance that shares a pack shows its name and
+// icon and Browse knows it's installed. Everything else (mods, and packs in a folder that isn't shared) keeps its
+// details in the instance itself (instance.content). Both are keyed "folder/file", like "resourcepacks/x.zip".
+const sharedFile = () => path.join(paths.synced, 'content.json');
+
+function readShared() {
+  try {
+    return readJson(sharedFile());
+  } catch {
+    return {};
+  }
+}
+
+const folderOf = (rel) => rel.split('/')[0];
+const isShared = (instance, folder) => PACK_FOLDERS.includes(folder) && sync.isSynced(instance, folder);
+
+// Moves the details of packs in shared folders from the instance to the shared record, and forgets shared details
+// whose file is gone. Run whenever an instance is loaded, so details written before this existed move over too.
+function settle(instance) {
+  const shared = readShared();
+  let instanceChanged = false;
+  let sharedChanged = false;
+  for (const [rel, meta] of Object.entries(instance.content)) {
+    if (!isShared(instance, folderOf(rel))) continue;
+    shared[rel] = meta;
+    delete instance.content[rel];
+    instanceChanged = sharedChanged = true;
+  }
+  for (const rel of Object.keys(shared)) {
+    if (!fs.existsSync(path.join(paths.synced, rel))) {
+      delete shared[rel];
+      sharedChanged = true;
+    }
+  }
+  if (instanceChanged) instances.save(instance);
+  if (sharedChanged) writeJson(sharedFile(), shared);
+  return instance;
+}
+
+// At startup: every instance's shared pack details move over at once, so all instances see them straight away.
+function settleAll() {
+  for (const instance of instances.list()) {
+    try {
+      settle(pruneMissing(instance));
+    } catch (err) {
+      console.error(`Could not tidy the pack details of ${instance.id}:`, err.message);
+    }
+  }
+}
+
+// The details for every file the instance has: its own, plus the shared ones for files it has (also a copy kept
+// after it stopped sharing the folder, which has the same name).
+function records(instance) {
+  const gameDir = instances.gameDir(instance.id);
+  const all = { ...instance.content };
+  for (const [rel, meta] of Object.entries(readShared())) {
+    if (!(rel in all) && fs.existsSync(path.join(gameDir, rel))) all[rel] = meta;
+  }
+  return all;
+}
+
+function forgetRecord(instance, rel) {
+  delete instance.content[rel];
+  const shared = readShared();
+  if (rel in shared) {
+    delete shared[rel];
+    writeJson(sharedFile(), shared);
+  }
+}
 
 function installedProjects(instance) {
-  return new Set(Object.values(instance.content).map((c) => c.projectId));
+  return new Set(Object.values(records(instance)).map((c) => c.projectId));
 }
 
 // Forgets records whose file is gone (e.g. deleted in Explorer), so they no longer count as installed.
@@ -27,7 +102,7 @@ function pruneMissing(instance) {
 }
 
 function loadInstance(id) {
-  return pruneMissing(instances.get(id));
+  return settle(pruneMissing(instances.get(id)));
 }
 
 async function search(id, query, type = 'mod', offset = 0) {
@@ -88,11 +163,11 @@ async function installVersion(instance, version, type, report, visited) {
   report(`Downloading ${project.title}`);
   await downloadFile(file.url, path.join(gameDir, folder, file.filename), { sha1: file.hashes.sha1, size: file.size });
 
-  // Replace any older file of the same project.
-  for (const [rel, meta] of Object.entries(instance.content)) {
+  // Replace any older file of the same project (its details may be the instance's or shared).
+  for (const [rel, meta] of Object.entries(records(instance))) {
     if (meta.projectId === version.project_id && rel !== `${folder}/${file.filename}`) {
-      fs.rmSync(path.join(gameDir, rel), { force: true });
-      delete instance.content[rel];
+      fs.rmSync(path.join(gameDir, rel), { force: true, recursive: true });
+      forgetRecord(instance, rel);
     }
   }
   instance.content[`${folder}/${file.filename}`] = {
@@ -124,29 +199,52 @@ async function install(id, projectId, type = 'mod', report = () => {}) {
     await installVersion(instance, version, type, report, new Set());
   } finally {
     instances.save(instance); // keep track of whatever did get installed
+    settle(instance); // a pack in a shared folder keeps its details with the folder
   }
   return instance;
 }
 
-// Lists every file in the instance's mods folder, with Modrinth info where we have it.
-function listMods(id) {
+// The Installed tab: every mod, resource pack and shader the instance has, with Modrinth info where we have it.
+// Packs can be a .zip or an unpacked folder; anything else in those folders (Iris keeps a .txt of settings next
+// to each shader) isn't a pack.
+function listContent(id) {
   const instance = loadInstance(id);
-  const modsDir = path.join(instances.gameDir(id), 'mods');
-  if (!fs.existsSync(modsDir)) return [];
-  return fs.readdirSync(modsDir)
-    .filter((f) => /\.jar(\.disabled)?$/i.test(f))
-    .map((file) => {
-      const meta = instance.content[`mods/${file}`];
-      return {
-        file,
-        title: meta?.title || file.replace(/\.jar(\.disabled)?$/i, ''),
-        versionNumber: meta?.versionNumber || '',
-        iconUrl: meta?.iconUrl || null,
-        fromModrinth: Boolean(meta), // only these can switch versions
+  const gameDir = instances.gameDir(id);
+  const known = records(instance);
+  const entries = (folder, isItem) => {
+    const dir = path.join(gameDir, folder);
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir, { withFileTypes: true }).filter(isItem).map((entry) => entry.name);
+  };
+  const item = (folder, file, title) => {
+    const meta = known[`${folder}/${file}`];
+    return {
+      file,
+      title: meta?.title || title,
+      versionNumber: meta?.versionNumber || '',
+      iconUrl: meta?.iconUrl || null,
+      fromModrinth: Boolean(meta),
+    };
+  };
+  const byTitle = (a, b) => a.title.localeCompare(b.title);
+  const packs = (folder) => entries(folder, (e) => e.isDirectory() || /\.zip$/i.test(e.name))
+    .map((file) => ({ ...item(folder, file, file.replace(/\.zip$/i, '')), shared: isShared(instance, folder) }))
+    .sort(byTitle);
+  return {
+    mod: entries(FOLDERS.mod, (e) => e.isFile() && /\.jar(\.disabled)?$/i.test(e.name))
+      .map((file) => ({
+        ...item(FOLDERS.mod, file, file.replace(/\.jar(\.disabled)?$/i, '')), // only Modrinth ones can switch versions
         enabled: !/\.disabled$/i.test(file),
-      };
-    })
-    .sort((a, b) => a.title.localeCompare(b.title));
+      }))
+      .sort(byTitle),
+    resourcepack: packs(FOLDERS.resourcepack),
+    shader: packs(FOLDERS.shader),
+  };
+}
+
+// Is the pack shared with other instances (so removing it removes it there too)?
+function isSharedContent(id, type) {
+  return type !== 'mod' && isShared(instances.get(id), FOLDERS[type]);
 }
 
 // Switches a mod on or off the way Fabric expects: a switched-off mod is renamed to .jar.disabled, so the game
@@ -231,14 +329,18 @@ async function setModVersion(id, file, versionId, report = () => {}) {
   return { title: meta.title, versionNumber: version.version_number };
 }
 
-function removeMod(id, file) {
-  if (file.includes('/') || file.includes('\\')) throw new Error('Invalid file name');
+// Removes a mod, resource pack or shader. A pack in a shared folder goes for every instance that shares it.
+function removeContent(id, type, file) {
+  if (!FOLDERS[type]) throw new Error(`Unknown content type ${type}`);
+  if (!file || file.includes('/') || file.includes('\\') || file === '.' || file === '..') throw new Error('Invalid file name');
   const instance = loadInstance(id);
-  fs.rmSync(path.join(instances.gameDir(id), 'mods', file), { force: true });
-  delete instance.content[`mods/${file}`];
+  const rel = `${FOLDERS[type]}/${file}`;
+  fs.rmSync(path.join(instances.gameDir(id), rel), { force: true, recursive: true, maxRetries: 3 });
+  forgetRecord(instance, rel);
   instances.save(instance);
 }
 
 module.exports = {
-  search, searchModpacks, install, listMods, setModEnabled, checkModUpdates, removeMod, listModVersions, setModVersion,
+  FOLDERS, settleAll, search, searchModpacks, install, listContent, isSharedContent, setModEnabled, checkModUpdates,
+  removeContent, listModVersions, setModVersion,
 };

@@ -33,8 +33,8 @@ contextBridge.exposeInMainWorld('launcher', {
   listIcons: () => invoke('icons:list'),
   launch: (id) => invoke('instances:launch', id),
 
-  listMods: (id) => invoke('mods:list', id),
-  removeMod: (id, file) => invoke('mods:remove', id, file),
+  listContent: (id) => invoke('content:list', id),
+  removeContent: (id, type, file) => invoke('content:remove', id, type, file),
   setModEnabled: (id, file, enabled) => invoke('mods:setEnabled', id, file, enabled),
   checkModUpdates: (id) => invoke('mods:updates', id),
   listModVersions: (id, file) => invoke('mods:versions', id, file),

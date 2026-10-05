@@ -17,7 +17,11 @@
 
 - **Instances**: separate game folders, vanilla or Fabric, any release or snapshot, each showing its time played
   and when you last played it. Hojicha downloads the game, libraries, assets and the matching Java runtime from
-  Mojang itself; game files are never redistributed.
+  Mojang itself; game files are never redistributed. The ⋯ next to Play renames an instance, changes its icon or
+  gives it its own memory.
+- **Installed**: every mod, resource pack and shader in one list, to filter or show by kind. Switch mods on and
+  off, see which have a newer version and update them one by one or all at once. Packs shared with other
+  instances carry a link icon, and removing one says where else it goes from.
 - **Modrinth browser**: search mods, resource packs and shaders filtered to the instance's version and loader.
   One click installs the newest compatible version plus its required dependencies, and any installed mod can be
   switched to another version.
@@ -35,6 +39,12 @@
   title bar.
 - **Microsoft accounts**: sign in with Microsoft's official device-code flow. Your skin's face shows next to your
   name, and skin or name changes are picked up each time the launcher starts.
+- **Settings** (next to your account): the default memory, which Java to use (Hojicha's own, or a java.exe you
+  pick), and checking for updates.
+- **Closing safely**: closing Hojicha while a game or server is running asks first. Servers are saved and stopped;
+  a game would close without saving, so you're told before it does.
+- **Back and forward**: the mouse's back and forward buttons (or Alt+Left and Alt+Right) move between the
+  instances, servers and tabs you've visited.
 - **Updates in the launcher**: new versions download in the background and install with one click.
 
 | Browse Modrinth | Online play |
@@ -115,7 +125,8 @@ That folder holds the launcher and everything it stores:
 app\         the launcher itself
 instances\   one folder per instance (the game folder is instances\<name>\minecraft)
 servers\     servers made with New server
-synced\      worlds, mod configs, resource packs, shader packs, screenshots and options shared between instances
+synced\      worlds, mod configs, resource packs, shader packs, screenshots and options shared between instances,
+             and content.json with the Modrinth details of the shared packs
 meta\        Minecraft versions, libraries, assets, Java and playit's agent, shared by all instances
 config\      settings, accounts, servers and the playit.gg link
 uninstall.exe, and a Hojicha Launcher shortcut

@@ -287,8 +287,15 @@ function registerIpc() {
   });
   handle('instances:launch', launch);
 
-  handle('mods:list', (id) => modrinth.listMods(id));
-  handle('mods:remove', (id, file) => modrinth.removeMod(id, file));
+  handle('content:list', (id) => modrinth.listContent(id));
+  // Windows locks the files a running game uses: for a shared pack, that's any running instance sharing it.
+  handle('content:remove', (id, type, file) => {
+    const shared = modrinth.isSharedContent(id, type);
+    const folder = modrinth.FOLDERS[type];
+    const inUse = running.has(id) || (shared && [...running.keys()].some((other) => sync.isSynced(instances.get(other), folder)));
+    if (inUse) throw new Error('Close the game first: Windows keeps the file locked while it runs.');
+    return modrinth.removeContent(id, type, file);
+  });
   handle('mods:setEnabled', (id, file, enabled) => {
     if (running.has(id)) throw new Error('Close the game first: Windows keeps mod files locked while it runs.');
     return modrinth.setModEnabled(id, file, enabled);
@@ -419,6 +426,7 @@ function registerIpc() {
     playit.unlink();
   });
 
+  // The player chose to close anyway: servers save and stop first; games end with the launcher.
   handle('app:stopServersAndClose', async () => {
     await servers.stopAll();
     allowClose = true;
@@ -501,15 +509,26 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), zoomFactor: ZOOM },
   });
   win.removeMenu();
-  // Closing while a server runs keeps the window open and asks first (see the close dialog in the UI): the server
-  // has to save and stop, and the launcher shouldn't look closed while that happens.
+  // Closing while something runs keeps the window open and asks first (see the close dialog in the UI). A server
+  // has to save and stop, and the launcher shouldn't look closed while that happens. A game can't be asked to
+  // stop: it ends with the launcher (Windows ends a program's child processes with it), without saving, so the
+  // player hears about that too, as well as about an instance that's still getting ready.
   win.on('close', (event) => {
     const runningServers = servers.list().filter((s) => servers.isRunning(s.id));
-    if (allowClose || !runningServers.length) return;
+    const games = [...running.entries()].map(([id, child]) => {
+      let name = id;
+      try {
+        name = instances.get(id).name;
+      } catch {
+        // deleted meanwhile: its folder name will do
+      }
+      return { name, preparing: !child };
+    });
+    if (allowClose || (!runningServers.length && !games.length)) return;
     event.preventDefault();
     if (win.isMinimized()) win.restore();
     win.focus();
-    send('close-requested', runningServers.map((s) => s.name));
+    send('close-requested', { servers: runningServers.map((s) => s.name), games });
   });
   // Some mouse drivers send their back and forward buttons as Windows app commands instead of mouse buttons: pass
   // them to the page, which steps through its own history (and ignores the same press arriving both ways).
@@ -552,6 +571,7 @@ function startUpdateChecks() {
 app.whenReady().then(() => {
   if (!firstInstance) return;
   sync.relinkAll();
+  modrinth.settleAll(); // pack details move to the shared folder they belong with
   unpackIcons();
   if (safeStorage.isEncryptionAvailable()) {
     const cipher = {

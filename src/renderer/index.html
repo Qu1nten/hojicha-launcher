@@ -101,22 +101,30 @@
       <p id="status" class="status" role="status"></p>
 
       <nav class="tabs" aria-label="Instance sections">
-        <button data-tab="mods" class="active">Mods</button>
+        <button data-tab="mods" class="active">Installed</button>
         <button data-tab="browse">Browse Modrinth</button>
         <button data-tab="sync">Sync</button>
         <button data-tab="log">Log</button>
       </nav>
 
-      <div class="tab" id="tab-mods">
+      <div class="tab tab-split" id="tab-mods">
         <div id="mods-bar" class="mods-bar" hidden>
-          <input id="mod-filter" type="search" placeholder="Filter mods" spellcheck="false" autocomplete="off" aria-label="Filter mods">
+          <input id="mod-filter" type="search" placeholder="Filter" spellcheck="false" autocomplete="off" aria-label="Filter what's installed">
           <span id="mod-count" class="mod-count" role="status"></span>
           <button type="button" id="mods-update-all" hidden>Update all</button>
         </div>
-        <ul id="mod-list" class="rows mod-list"></ul>
+        <div id="content-kinds" class="kinds" role="group" aria-label="Show" hidden>
+          <button type="button" data-kind="all">All</button>
+          <button type="button" data-kind="mod">Mods</button>
+          <button type="button" data-kind="resourcepack">Resource packs</button>
+          <button type="button" data-kind="shader">Shaders</button>
+        </div>
+        <div class="tab-scroll">
+          <ul id="mod-list" class="rows mod-list"></ul>
+        </div>
       </div>
 
-      <div class="tab" id="tab-browse" hidden>
+      <div class="tab tab-split" id="tab-browse" hidden>
         <form id="search-form" class="search">
           <select id="search-type" aria-label="What to search for">
             <option value="mod">Mods</option>
@@ -126,8 +134,10 @@
           <input id="search-query" placeholder="Search Modrinth" spellcheck="false" aria-label="Search Modrinth">
           <button type="submit">Search</button>
         </form>
-        <ul id="search-results" class="rows"></ul>
-        <button id="load-more" class="load-more" hidden>Show more results</button>
+        <div class="tab-scroll">
+          <ul id="search-results" class="rows"></ul>
+          <button id="load-more" class="load-more" hidden>Show more results</button>
+        </div>
       </div>
 
       <div class="tab" id="tab-sync" hidden>
@@ -442,11 +452,26 @@
   <dialog id="close-dialog">
     <div class="dialog-body">
       <h2 id="close-title">Stop the server first?</h2>
-      <p id="close-text" class="hint"></p>
+      <p id="close-text"></p>
+      <p id="close-note" class="hint"></p>
       <div id="close-error" class="error"></div>
       <div class="dialog-actions">
         <button type="button" id="close-cancel" class="quiet">Keep running</button>
         <button type="button" id="close-confirm" class="primary">Stop and close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- A question before something that can't be undone (askConfirm in app.js). The safe answer comes first, so
+       it has focus and Enter or Escape never removes anything. -->
+  <dialog id="confirm-dialog">
+    <div class="dialog-body">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-text"></p>
+      <p id="confirm-note" class="hint"></p>
+      <div class="dialog-actions">
+        <button type="button" id="confirm-cancel" class="quiet"></button>
+        <button type="button" id="confirm-ok" class="primary"></button>
       </div>
     </div>
   </dialog>

@@ -12,7 +12,7 @@ const { fetchJson, downloadFile, runPool } = require('./http');
 const API = 'https://api.modrinth.com/v2';
 // The only hosts the .mrpack format lets packs download from.
 const ALLOWED_HOSTS = ['cdn.modrinth.com', 'github.com', 'raw.githubusercontent.com', 'gitlab.com'];
-// Folders the index's mod files may also land in, tracked like Browse installs so the Mods tab knows them.
+// Folders the index's mod files may also land in, tracked like Browse installs so the Installed tab knows them.
 const TRACKED = ['mods/', 'resourcepacks/', 'shaderpacks/'];
 
 function fabricVersions(projectId) {
