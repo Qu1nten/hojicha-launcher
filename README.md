@@ -11,41 +11,19 @@
 
 > **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 
-![Hojicha Launcher in the dark Hojicha theme, showing a Fabric instance with its mods, play time and last played](docs/screenshot-mods.png)
+![Hojicha Launcher in the dark Hojicha theme: an instance's Installed tab with its mods, resource packs and shaders](docs/screenshot-mods.png)
 
 ## Features
 
-- **Instances**: separate game folders, vanilla or Fabric, any release or snapshot, each showing its time played
-  and when you last played it. Hojicha downloads the game, libraries, assets and the matching Java runtime from
-  Mojang itself; game files are never redistributed. The ⋯ next to Play renames an instance, changes its icon or
-  gives it its own memory.
-- **Installed**: every mod, resource pack and shader in one list, to filter or show by kind. Switch mods on and
-  off, see which have a newer version and update them one by one or all at once. Packs shared with other
-  instances carry a link icon, and removing one says where else it goes from.
-- **Modrinth browser**: search mods, resource packs and shaders filtered to the instance's version and loader.
-  One click installs the newest compatible version plus its required dependencies, and any installed mod can be
-  switched to another version.
-- **Modpacks**: New instance → Start from a modpack makes an instance from a Fabric modpack on Modrinth, on the
-  Minecraft version you pick, with everything it needs. Upload a modpack installs one from an .mrpack file.
-- **Item icons**: every instance and server gets a Minecraft item as its icon; click it to pick another.
-- **Instance syncing**: share worlds, mod settings, resource packs, shader packs, screenshots, options/keybinds and
-  the server list between instances. Everything is synced by default; switch items off per instance.
-- **Local servers**: create a Paper, Purpur or Fabric server in a couple of clicks, or add a server folder you
-  already have, and use **Start and join** to start it and jump straight in.
-- **Online play**: let friends join a local server over the internet through [playit.gg](https://playit.gg),
-  without port forwarding or changing anything on your PC or router. Public servers always check Microsoft
-  accounts and use a whitelist.
-- **Two teas**: the dark roasted **Hojicha** theme or the light whisked-green **Matcha** theme, switched from the
-  title bar.
-- **Microsoft accounts**: sign in with Microsoft's official device-code flow. Your skin's face shows next to your
-  name, and skin or name changes are picked up each time the launcher starts.
-- **Settings** (next to your account): the default memory, which Java to use (Hojicha's own, or a java.exe you
-  pick), and checking for updates.
-- **Closing safely**: closing Hojicha while a game or server is running asks first. Servers are saved and stopped;
-  a game would close without saving, so you're told before it does.
-- **Back and forward**: the mouse's back and forward buttons (or Alt+Left and Alt+Right) move between the
-  instances, servers and tabs you've visited.
-- **Updates in the launcher**: new versions download in the background and install with one click.
+- **Instances**: separate copies of the game, vanilla or Fabric, on any version, each with its own mods and worlds.
+- **Installed**: all your mods, resource packs and shaders in one list. Switch mods on or off and update them in
+  one click.
+- **Modrinth**: find and install mods, resource packs, shaders and whole modpacks, with everything they need.
+- **Syncing**: share worlds, settings and packs between instances.
+- **Servers**: make a Paper, Purpur or Fabric server and join it in one click. Friends can join over the internet
+  through [playit.gg](https://playit.gg), without port forwarding.
+- **Two teas**: a dark **Hojicha** theme and a light **Matcha** theme.
+- **Safe and private**: you sign in on Microsoft's own website, nothing is tracked, and updates install themselves.
 
 | Browse Modrinth | Online play |
 | --- | --- |

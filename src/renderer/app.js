@@ -2559,6 +2559,7 @@ $('#srv-command-form').onsubmit = async (event) => {
 
 (async () => {
   [appSettings, appInfo] = await Promise.all([api.getSettings(), api.getAppInfo()]);
+  $('#app-version').textContent = `v${appInfo.version}`;
   await refreshAccounts();
   api.refreshProfiles().then(renderAccounts, () => {}); // new skins show up once Mojang answers
   await refreshInstances();
