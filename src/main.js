@@ -306,6 +306,19 @@ function registerIpc() {
     const png = icons.fontSheet();
     return png ? `data:image/png;base64,${png.toString('base64')}` : null;
   });
+  // Saves skin files ({ name, read }), saying which ones weren't skins.
+  const addSkinFiles = (files) => {
+    let added = null;
+    const problems = [];
+    for (const file of files) {
+      try {
+        added = skins.add(file.read(), 'classic'); // the page guesses the arms from the image
+      } catch (err) {
+        problems.push(`${file.name}: ${err.message}`);
+      }
+    }
+    return { skins: skins.list(), added, error: problems.join('\n') || null };
+  };
   handle('skins:add', async () => {
     const result = await dialog.showOpenDialog(win, {
       title: 'Add skins',
@@ -313,17 +326,13 @@ function registerIpc() {
       properties: ['openFile', 'multiSelections'],
     });
     if (result.canceled || !result.filePaths.length) return null;
-    let added = null;
-    const problems = [];
-    for (const file of result.filePaths) {
-      try {
-        added = skins.add(fs.readFileSync(file), 'classic'); // the page guesses the arms from the image
-      } catch (err) {
-        problems.push(`${path.basename(file)}: ${err.message}`);
-      }
-    }
-    return { skins: skins.list(), added, error: problems.join('\n') || null };
+    return addSkinFiles(result.filePaths.map((file) => ({ name: path.basename(file), read: () => fs.readFileSync(file) })));
   });
+  // Files dropped on the skin window: the page sends their bytes.
+  handle('skins:addDropped', (files) => addSkinFiles(files.map((file) => ({
+    name: String(file.name),
+    read: () => Buffer.from(file.data),
+  }))));
   handle('skins:remove', (skinId) => {
     skins.remove(skinId);
     return skins.list();

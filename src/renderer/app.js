@@ -2353,11 +2353,11 @@ const CHECK = '<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d=
 function renderSkinWindow() {
   const { skins, capes, current, chosen } = skinWindow;
 
-  const add = el('button', { type: 'button', className: 'add-skin', title: 'Add skins (PNG files)' }, [
+  const add = el('button', { type: 'button', className: 'add-skin', title: 'Add skins (PNG files). You can also drop them on this window.' }, [
     el('span', { className: 'add-plus', textContent: '+' }),
     el('span', { className: 'add-label', textContent: 'Add skin' }),
   ]);
-  add.onclick = addSkins;
+  add.onclick = () => addSkins();
   $('#skin-grid').replaceChildren(el('div', { className: 'skin-tile' }, [add]), ...skins.map((skin) => {
     const picture = el('img', { alt: '', draggable: false });
     skinPicture(skin).then((url) => { picture.src = url; }, () => {});
@@ -2470,11 +2470,17 @@ async function openSkins(account) {
   refreshAccounts(); // the face may have changed since the launcher started
 }
 
-async function addSkins() {
+// Adds skins from the file picker (no files) or dropped on the window (files), and picks the last one added.
+async function addSkins(files) {
   $('#skins-error').textContent = '';
   let result;
   try {
-    result = await api.addSkins();
+    result = files
+      ? await api.addDroppedSkins(await Promise.all(files.map(async (file) => ({
+        name: file.name,
+        data: new Uint8Array(await file.arrayBuffer()),
+      }))))
+      : await api.addSkins();
   } catch (err) {
     $('#skins-error').textContent = errorText(err);
     return;
@@ -2831,6 +2837,39 @@ $('#skins-save').onclick = saveSkinWindow;
 $('#skins-dialog').addEventListener('close', () => {
   closeMenus();
   stopViewer();
+  endSkinDrag();
+});
+
+// Skin files dragged onto the skin window (its backdrop counts too, so anywhere in the launcher) are added to the
+// saved skins. While they're over it, the window says so. dragenter and dragleave fire for every element passed
+// over, so the window counts them to know when the files have really left.
+let skinDragDepth = 0;
+const draggingFiles = (event) => event.dataTransfer?.types.includes('Files');
+function endSkinDrag() {
+  skinDragDepth = 0;
+  $('#skins-dialog').classList.remove('dropping');
+}
+$('#skins-dialog').addEventListener('dragenter', (event) => {
+  if (!draggingFiles(event)) return;
+  event.preventDefault();
+  skinDragDepth++;
+  $('#skins-dialog').classList.add('dropping');
+});
+$('#skins-dialog').addEventListener('dragover', (event) => {
+  if (!draggingFiles(event)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+});
+$('#skins-dialog').addEventListener('dragleave', (event) => {
+  if (!draggingFiles(event)) return;
+  if (--skinDragDepth <= 0) endSkinDrag();
+});
+$('#skins-dialog').addEventListener('drop', (event) => {
+  if (!draggingFiles(event)) return;
+  event.preventDefault();
+  endSkinDrag();
+  const files = [...event.dataTransfer.files];
+  if (files.length) addSkins(files);
 });
 $('#accounts-close').onclick = () => {
   if (loginActive) cancelMicrosoftLogin();

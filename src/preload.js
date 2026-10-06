@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('launcher', {
   addOfflineAccount: (name) => invoke('accounts:addOffline', name),
   openSkins: (accountId) => invoke('skins:open', accountId),
   addSkins: () => invoke('skins:add'),
+  addDroppedSkins: (files) => invoke('skins:addDropped', files),
   fontSheet: () => invoke('skins:font'),
   removeSkin: (skinId) => invoke('skins:remove', skinId),
   applySkin: (accountId, choice) => invoke('skins:apply', accountId, choice),
