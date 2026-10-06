@@ -225,20 +225,32 @@
           <p id="srv-meta" class="meta"></p>
         </div>
         <div class="header-actions">
-          <button id="srv-open-folder" class="quiet">Open folder</button>
-          <button id="srv-remove" class="quiet danger">Remove</button>
+          <!-- Like an instance's: what you do to the server itself, behind one quiet button. -->
+          <div class="more-wrap">
+            <button type="button" id="srv-more" class="quiet more-button" aria-haspopup="menu" aria-expanded="false" aria-controls="srv-menu" aria-label="More for this server" title="More">
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle class="fill" cx="3.2" cy="8" r="1.3"/><circle class="fill" cx="8" cy="8" r="1.3"/><circle class="fill" cx="12.8" cy="8" r="1.3"/></svg>
+            </button>
+            <div id="srv-menu" class="menu" role="menu" hidden>
+              <button type="button" role="menuitem" id="srv-menu-icon">Change icon</button>
+              <button type="button" role="menuitem" id="srv-open-folder">Open folder</button>
+              <hr>
+              <button type="button" role="menuitem" id="srv-remove" class="danger" title="">Remove from list</button>
+            </div>
+          </div>
           <button id="srv-toggle">Start</button>
-          <button id="srv-join" class="play">
-            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path class="fill" d="M5 3.3v9.4a.9.9 0 0 0 1.4.75l7.2-4.7a.9.9 0 0 0 0-1.5L6.4 2.55A.9.9 0 0 0 5 3.3z"/></svg>
-            <span id="srv-join-label">Start and join</span>
-          </button>
+          <!-- Start and join asks which instance only when there's a choice: with one that fits, it joins straight
+               away; with several, a menu under the button lists them. -->
+          <div class="more-wrap">
+            <button id="srv-join" class="play" aria-haspopup="menu" aria-expanded="false" aria-controls="join-menu">
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path class="fill" d="M5 3.3v9.4a.9.9 0 0 0 1.4.75l7.2-4.7a.9.9 0 0 0 0-1.5L6.4 2.55A.9.9 0 0 0 5 3.3z"/></svg>
+              <span id="srv-join-label">Start and join</span>
+            </button>
+            <div id="join-menu" class="menu join-menu" role="menu" aria-label="Join with" hidden></div>
+          </div>
         </div>
       </header>
       <div class="srv-subhead">
         <p id="srv-status" class="status" role="status"></p>
-        <label class="join-with">with
-          <select id="srv-instance" aria-label="Instance to join with"></select>
-        </label>
       </div>
       <p id="srv-intro" class="intro"></p>
 
@@ -418,35 +430,53 @@
   <dialog id="server-dialog">
     <form id="server-form" method="dialog" class="dialog-body">
       <h2>New server</h2>
-      <label class="field">Name
-        <input id="server-name" placeholder="My server" spellcheck="false">
-      </label>
-      <fieldset class="field type-picker">
-        <legend>Server software</legend>
-        <label class="type-option">
-          <input type="radio" name="server-type" value="paper" checked>
-          <span class="type-name">Paper</span>
-          <span class="type-desc">Fast, runs plugins</span>
-        </label>
-        <label class="type-option">
-          <input type="radio" name="server-type" value="purpur">
-          <span class="type-name">Purpur</span>
-          <span class="type-desc">Paper with extra options</span>
-        </label>
-        <label class="type-option">
-          <input type="radio" name="server-type" value="fabric">
-          <span class="type-name">Fabric</span>
-          <span class="type-desc">Runs Fabric mods</span>
-        </label>
-      </fieldset>
-      <label class="field">Minecraft version
-        <select id="server-version"></select>
-      </label>
-      <label class="check"><input id="server-eula" type="checkbox"> I agree to the <a href="#" id="eula-link">Minecraft EULA</a></label>
-      <p class="hint">The server goes in the launcher's servers folder. Only this PC can join until you turn on online play.</p>
-      <div class="existing-folder">
-        <span>Already have a server folder?</span>
-        <button type="button" id="add-server" class="outline">Add folder</button>
+      <!-- Like New instance: a start page of choices, then the setup page for making one. Both pages share one
+           place, so the dialog keeps its size between them. -->
+      <div id="server-pages" class="server-pages">
+        <div id="server-home" class="new-page choices">
+          <button type="button" class="choice" id="server-choose-create">
+            <span class="choice-icon"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="4.5" rx="1"/><rect x="2.5" y="9" width="11" height="4.5" rx="1"/><path d="M5 4.75h.01M5 11.25h.01"/></svg></span>
+            <span class="choice-text">
+              <span class="choice-name">Create a server</span>
+              <span class="choice-desc">Paper, Purpur or Fabric, on the Minecraft version you pick.</span>
+            </span>
+          </button>
+          <button type="button" class="choice" id="add-server">
+            <span class="choice-icon"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5c0-.6.4-1 1-1h3l1.5 1.5H13c.6 0 1 .4 1 1v6c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1z"/></svg></span>
+            <span class="choice-text">
+              <span class="choice-name">Add a server folder</span>
+              <span class="choice-desc">Use a server you already have. Its folder stays where it is.</span>
+            </span>
+          </button>
+        </div>
+        <div id="server-setup" class="new-page" hidden>
+          <label class="field">Name
+            <input id="server-name" placeholder="My server" spellcheck="false">
+          </label>
+          <fieldset class="field type-picker">
+            <legend>Server software</legend>
+            <label class="type-option">
+              <input type="radio" name="server-type" value="paper" checked>
+              <span class="type-name">Paper</span>
+              <span class="type-desc">Fast, runs plugins</span>
+            </label>
+            <label class="type-option">
+              <input type="radio" name="server-type" value="purpur">
+              <span class="type-name">Purpur</span>
+              <span class="type-desc">Paper with extra options</span>
+            </label>
+            <label class="type-option">
+              <input type="radio" name="server-type" value="fabric">
+              <span class="type-name">Fabric</span>
+              <span class="type-desc">Runs Fabric mods</span>
+            </label>
+          </fieldset>
+          <label class="field">Minecraft version
+            <select id="server-version"></select>
+          </label>
+          <label class="check"><input id="server-eula" type="checkbox"> I agree to the <a href="#" id="eula-link">Minecraft EULA</a></label>
+          <p class="hint">The server goes in the launcher's servers folder. Only this PC can join until you turn on online play.</p>
+        </div>
       </div>
       <div id="server-error" class="error"></div>
       <div class="dialog-actions">

@@ -1135,18 +1135,16 @@ function renderServer() {
   toggle.textContent = { idle: 'Start server', error: 'Start server', starting: 'Starting', running: 'Stop server', stopping: 'Stopping' }[s.state];
   toggle.disabled = s.state === 'starting' || s.state === 'stopping';
   $('#srv-remove').disabled = s.state !== 'idle' && s.state !== 'error';
+  $('#srv-remove').title = $('#srv-remove').disabled ? 'Stop the server first' : '';
 
-  // Only instances on the same Minecraft version can join.
-  const select = $('#srv-instance');
-  const previous = select.value;
-  const matching = state.instances.filter((i) => i.gameVersion === server.mcVersion);
-  select.replaceChildren(...(matching.length
-    ? matching.map((i) => el('option', { value: i.id, textContent: `${i.name} (${loaderLabel(i)})` }))
-    : [el('option', { value: '', textContent: `No ${server.mcVersion} instances yet` })]));
-  if (matching.some((i) => i.id === previous)) select.value = previous;
+  // Start and join: the instance is picked when it's clicked (see the join menu), from those that can join.
+  const matching = joinable(server);
+  const allPlaying = matching.length > 0 && matching.every((i) => isBusy(i.id));
   const join = $('#srv-join');
   $('#srv-join-label').textContent = s.state === 'running' ? 'Join' : 'Start and join';
-  join.disabled = !matching.length || s.state === 'stopping' || isBusy(select.value);
+  join.disabled = !matching.length || allPlaying || s.state === 'stopping';
+  join.title = !matching.length ? `No ${server.mcVersion} instance yet`
+    : allPlaying ? `Your ${server.mcVersion} instances are already playing` : '';
 
   renderOnline();
   renderServerLog(false);
@@ -1998,23 +1996,37 @@ async function chooseTheme(theme) {
   }
 }
 
-// ---------- The instance's ⋯ menu ----------
+// ---------- The ⋯ menus (instance and server) ----------
 
-// Rename, icon, memory, folder and delete: what you do to the instance itself, kept out of the way of playing it.
-function openInstanceMenu() {
-  const inst = current();
-  memoryOptions($('#inst-memory'), inst.memoryMb || null, `Default (${gb(appSettings.memoryMb)})`);
-  $('#inst-menu').hidden = false;
-  $('#inst-more').setAttribute('aria-expanded', 'true');
-  $('#inst-menu [role="menuitem"]').focus();
+// What you do to an instance or server itself (rename, icon, folder, delete), kept out of the way of playing it.
+// Both menus behave the same: they open under their ⋯ button, and close on a click outside, on Escape, and after
+// any item except a choice in a select (the instance's memory).
+const MENUS = [
+  { button: '#inst-more', menu: '#inst-menu', fill: () => memoryOptions($('#inst-memory'), current().memoryMb || null, `Default (${gb(appSettings.memoryMb)})`) },
+  { button: '#srv-more', menu: '#srv-menu', fill: () => {} },
+  { button: '#srv-join', menu: '#join-menu', fill: () => fillJoinMenu() }, // opened by Start and join's own click
+];
+
+function openMenu({ button, menu, fill }) {
+  closeMenus();
+  fill();
+  $(menu).hidden = false;
+  $(button).setAttribute('aria-expanded', 'true');
+  $(`${menu} [role="menuitem"]:not(:disabled)`)?.focus();
 }
 
-function closeInstanceMenu(returnFocus = false) {
-  if ($('#inst-menu').hidden) return;
-  $('#inst-menu').hidden = true;
-  $('#inst-more').setAttribute('aria-expanded', 'false');
-  if (returnFocus) $('#inst-more').focus();
+function closeMenu({ button, menu }, returnFocus = false) {
+  if ($(menu).hidden) return;
+  $(menu).hidden = true;
+  $(button).setAttribute('aria-expanded', 'false');
+  if (returnFocus) $(button).focus();
 }
+
+function closeMenus() {
+  for (const entry of MENUS) closeMenu(entry);
+}
+
+const closeInstanceMenu = () => closeMenu(MENUS[0]);
 
 async function updateInstance(patch) {
   const inst = current();
@@ -2359,7 +2371,6 @@ $('#update-check').onclick = async () => {
 $('#update-restart').onclick = () => $('#update-install').click();
 $('#open-launcher-folder').onclick = () => api.openLauncherFolder();
 $('#open-github').onclick = () => api.openExternal('https://github.com/Qu1nten/hojicha-launcher');
-$('#inst-more').onclick = () => ($('#inst-menu').hidden ? openInstanceMenu() : closeInstanceMenu());
 $('#menu-rename').onclick = startRename;
 $('#inst-name').ondblclick = startRename;
 $('#menu-icon').onclick = () => {
@@ -2372,22 +2383,27 @@ $('#inst-rename').onkeydown = (event) => {
   if (event.key === 'Escape') finishRename(false);
 };
 $('#inst-rename').onblur = () => finishRename(true);
-// The menu closes on a click outside it, on Escape, and after any of its actions except the memory choice.
+$('#srv-menu-icon').onclick = () => openIconPicker('server', currentServer());
+
+for (const entry of MENUS) {
+  const menu = $(entry.menu);
+  $(entry.button).onclick = () => (menu.hidden ? openMenu(entry) : closeMenu(entry));
+  menu.addEventListener('click', (event) => {
+    if (event.target.closest('[role="menuitem"]')) closeMenu(entry);
+  });
+  menu.addEventListener('keydown', (event) => {
+    const items = [...menu.querySelectorAll('[role="menuitem"]:not(:disabled), select')];
+    const at = items.indexOf(document.activeElement);
+    if (event.key === 'Escape') closeMenu(entry, true);
+    if (event.target.tagName === 'SELECT') return; // arrow keys pick the memory there
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      items[(at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+    }
+  });
+}
 document.addEventListener('mousedown', (event) => {
-  if (!event.target.closest('.more-wrap')) closeInstanceMenu();
-});
-$('#inst-menu').addEventListener('click', (event) => {
-  if (event.target.closest('[role="menuitem"]')) closeInstanceMenu();
-});
-$('#inst-menu').addEventListener('keydown', (event) => {
-  const items = [...$('#inst-menu').querySelectorAll('[role="menuitem"]:not(:disabled), select')];
-  const at = items.indexOf(document.activeElement);
-  if (event.key === 'Escape') closeInstanceMenu(true);
-  if (event.target.tagName === 'SELECT') return; // arrow keys pick the memory there
-  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-    event.preventDefault();
-    items[(at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
-  }
+  if (!event.target.closest('.more-wrap')) closeMenus();
 });
 
 $('#versions-close').onclick = () => $('#versions-dialog').close();
@@ -2451,7 +2467,19 @@ function openServerDialog() {
   $('#server-create').textContent = 'Create server';
   $('#server-version').value = '';
   $('#server-dialog').showModal();
-  fillServerVersions();
+  fillServerVersions(); // ready by the time the setup page opens
+}
+
+function showServerStep(step) {
+  serverStep = step;
+  const home = step === 'home';
+  $('#server-home').hidden = !home;
+  $('#server-setup').hidden = home;
+  $('#server-cancel').textContent = home ? 'Cancel' : 'Back';
+  $('#server-create').hidden = home; // the start page's choices are its buttons
+  $('#server-error').textContent = '';
+  if (home) $('#server-choose-create').focus();
+  else $('#server-name').focus(); // type a name straight away
 }
 
 async function createServer(event) {
@@ -2478,7 +2506,8 @@ async function createServer(event) {
 }
 
 $('#new-server').onclick = openServerDialog;
-$('#server-cancel').onclick = () => $('#server-dialog').close();
+$('#server-cancel').onclick = () => (serverStep === 'home' ? $('#server-dialog').close() : showServerStep('home'));
+$('#server-choose-create').onclick = () => showServerStep('create');
 $('#server-form').onsubmit = createServer;
 $('#server-eula').onchange = () => { $('#server-error').textContent = ''; };
 $('#eula-link').onclick = (event) => {
@@ -2487,9 +2516,9 @@ $('#eula-link').onclick = (event) => {
 };
 for (const radio of document.querySelectorAll('input[name="server-type"]')) radio.onchange = fillServerVersions;
 
-// From the New server dialog: use a server folder that already exists instead of making one.
+// New server's second choice: use a server folder that already exists instead of making one. It goes straight
+// to the folder picker; cancelling it leaves the start page open.
 $('#add-server').onclick = async () => {
-  $('#server-error').textContent = '';
   try {
     const server = await api.addServer();
     if (!server) return; // folder picker cancelled
@@ -2507,7 +2536,7 @@ $('#srv-remove').onclick = async () => {
   const remove = await askConfirm({
     title: `Remove ${server.name} from Hojicha?`,
     text: 'It leaves the list. The server folder stays where it is, with its worlds, so you can add it again later.',
-    confirm: 'Remove server',
+    confirm: 'Remove from list',
     cancel: 'Keep it',
   });
   if (!remove) return;
@@ -2532,9 +2561,14 @@ $('#srv-toggle').onclick = async () => {
   }
 };
 
-$('#srv-join').onclick = async () => {
+// Only instances on the server's own Minecraft version can join it.
+function joinable(server) {
+  return state.instances.filter((i) => i.gameVersion === server.mcVersion);
+}
+
+// Starts the server if needed and launches the instance straight into it.
+async function joinWith(instanceId) {
   const id = state.selectedServer;
-  const instanceId = $('#srv-instance').value;
   if (serverState(id) !== 'running') state.serverLogs[id] = [];
   state.logs[instanceId] = [];
   try {
@@ -2544,7 +2578,37 @@ $('#srv-join').onclick = async () => {
   }
 };
 
-$('#srv-instance').onchange = () => renderServer();
+// The join menu: each instance that can join, with its icon and version; one that's already playing can't.
+function fillJoinMenu() {
+  const menu = $('#join-menu');
+  menu.replaceChildren(
+    el('div', { className: 'menu-label', textContent: 'Join with', ariaHidden: 'true' }),
+    ...joinable(currentServer()).map((inst) => {
+      const playing = isBusy(inst.id);
+      const item = el('button', { type: 'button', role: 'menuitem', disabled: playing }, [
+        inst.iconUrl ? el('img', { className: 'join-icon', src: inst.iconUrl, alt: '' }) : icon('block'),
+        el('span', { className: 'join-text' }, [
+          el('span', { textContent: inst.name }),
+          el('span', { className: 'join-sub', textContent: playing ? 'Playing' : loaderLabel(inst) }),
+        ]),
+      ]);
+      item.onclick = () => joinWith(inst.id);
+      return item;
+    }),
+  );
+}
+
+// With one instance that can join, there's nothing to choose: join with it. With several, ask in the menu.
+$('#srv-join').onclick = () => {
+  const options = joinable(currentServer());
+  if (options.length === 1) {
+    joinWith(options[0].id);
+    return;
+  }
+  const entry = MENUS.find((m) => m.menu === '#join-menu');
+  if ($('#join-menu').hidden) openMenu(entry);
+  else closeMenu(entry);
+};
 
 $('#srv-command-form').onsubmit = async (event) => {
   event.preventDefault();
@@ -2557,7 +2621,7 @@ $('#srv-command-form').onsubmit = async (event) => {
   } catch (err) {
     showServerError(state.selectedServer, err);
   }
-};
+}
 
 (async () => {
   [appSettings, appInfo] = await Promise.all([api.getSettings(), api.getAppInfo()]);
@@ -2572,3 +2636,8 @@ $('#srv-command-form').onsubmit = async (event) => {
   update = await api.getUpdate();
   renderUpdate();
 })();
+// New server opens on its start page (create one, or add a folder you have), like New instance.
+let serverStep = 'home';
+
+  showServerStep('home');
+  if (serverStep !== 'create') return;

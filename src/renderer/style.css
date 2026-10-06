@@ -805,9 +805,15 @@ label.sync-row { display: contents; cursor: pointer; }
    with. Play sits in the same place on an instance, so the main action is always top right. */
 .srv-subhead { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 8px; }
 .srv-subhead .status { flex: 1; min-width: 0; margin-top: 0; }
-.join-with { display: flex; align-items: center; gap: 8px; flex-shrink: 0; font-size: var(--text-s); color: var(--steam-dim); }
-.join-with select { max-width: 280px; padding: 4px 8px; font-size: var(--text-s); color: var(--steam); }
-.header-actions #srv-join { margin-left: 10px; min-width: 196px; } /* fits "Start and join", so "Join" keeps the width */
+.header-actions #srv-join { min-width: 196px; } /* fits "Start and join", so "Join" keeps the width */
+.header-actions .more-wrap:has(#srv-join) { margin-left: 10px; }
+/* Join with: the instances that fit, each with its item icon, under Start and join and as wide as it. */
+.join-menu { min-width: 100%; }
+.join-menu .menu-label { padding: 4px 10px 6px; font-size: var(--text-xs); color: var(--steam-dim); }
+.join-menu > button { display: flex; align-items: center; gap: 10px; }
+.join-menu .join-icon { width: 24px; height: 24px; flex-shrink: 0; image-rendering: pixelated; }
+.join-menu .join-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.join-menu .join-sub { font-size: var(--text-xs); color: var(--steam-dim); }
 #srv-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* the full path is in its tooltip */
 .console-wrap { flex: 1; min-height: 0; overflow-y: auto; margin-top: 10px; border-radius: 10px; background: var(--roast-deep); }
 /* The console tab doesn't scroll itself: the console fills it and scrolls, the command box stays at the bottom. */
@@ -1029,9 +1035,11 @@ dialog::backdrop { background: var(--backdrop); }
 }
 .upload-box .hint { white-space: pre-line; }
 #upload-info.chosen { color: var(--steam); }
-/* Adding an existing folder skips everything above, so it sits apart from the new-server fields. */
-.existing-folder { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--clay); font-size: var(--text-s); color: var(--steam-dim); }
-.existing-folder button { padding: 5px 14px; }
+/* New server: the start page and the setup page share one grid cell, so the dialog is as tall as the taller page
+   on both and never jumps between them. The page not shown keeps its room but can't be seen or reached. */
+.server-pages { display: grid; }
+.server-pages > .new-page { grid-area: 1 / 1; }
+.server-pages > .new-page[hidden] { display: flex; visibility: hidden; }
 .check a { color: var(--liquor-text); text-underline-offset: 3px; }
 .check a:hover { color: var(--liquor-text-bright); }
 
