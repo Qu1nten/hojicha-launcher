@@ -133,15 +133,78 @@ async function minecraftLogin(msAccessToken) {
   }
   if (!profile.ok) throw new AuthError(`Could not load your Minecraft profile (HTTP ${profile.status}).`, 'profile');
 
-  const skin = (profile.data.skins || []).find((s) => s.state === 'ACTIVE') || profile.data.skins?.[0];
   return {
     accessToken,
     expiresAt: Date.now() + (mc.data.expires_in || 86400) * 1000,
     uuid: profile.data.id,
     name: profile.data.name,
+    ...activeSkin(profile.data),
+  };
+}
+
+// The skin in use from a Minecraft services profile, and its arms: classic (Steve) or slim (Alex).
+function activeSkin(profile) {
+  const skin = (profile.skins || []).find((s) => s.state === 'ACTIVE') || profile.skins?.[0];
+  return {
     // Mojang hands out http:// texture links; the renderer only loads https images.
     skinUrl: skin?.url?.replace(/^http:/, 'https:') || null,
+    skinVariant: skin?.variant?.toLowerCase() === 'slim' ? 'slim' : 'classic',
   };
+}
+
+// The signed-in profile: the skin in use and the capes the account owns (the public profile only has the active one).
+async function minecraftProfile(accessToken) {
+  const res = await request('https://api.minecraftservices.com/minecraft/profile', { token: accessToken });
+  if (res.status === 401) throw new Error('Minecraft no longer accepts this sign-in. Remove the account and add it again.');
+  if (!res.ok) throw new Error(`Could not load your Minecraft profile (HTTP ${res.status}).`);
+  return {
+    ...activeSkin(res.data),
+    capes: (res.data.capes || []).map((c) => ({
+      id: c.id,
+      name: c.alias || 'Cape',
+      url: c.url?.replace(/^http:/, 'https:'),
+      active: c.state === 'ACTIVE',
+    })),
+  };
+}
+
+// Shows one of the account's capes, or none (capeId null).
+async function setCape(accessToken, capeId) {
+  const url = 'https://api.minecraftservices.com/minecraft/profile/capes/active';
+  const res = await fetch(url, {
+    method: capeId ? 'PUT' : 'DELETE',
+    headers: {
+      'User-Agent': USER_AGENT,
+      Authorization: `Bearer ${accessToken}`,
+      ...(capeId ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: capeId ? JSON.stringify({ capeId }) : undefined,
+  });
+  if (res.status === 429) throw new Error('Mojang allows only a few changes in a short time. Try again in a minute.');
+  if (!res.ok) throw new Error(`Mojang didn't change the cape (HTTP ${res.status}).`);
+}
+
+// Makes png (a checked skin file) the account's skin. Returns the new skinUrl and skinVariant.
+async function uploadSkin(accessToken, png, variant) {
+  const body = new FormData();
+  body.append('variant', variant);
+  body.append('file', new Blob([png], { type: 'image/png' }), 'skin.png');
+  const res = await fetch('https://api.minecraftservices.com/minecraft/profile/skins', {
+    method: 'POST',
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+    body,
+  });
+  const text = await res.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    // an error page: the status says enough
+  }
+  if (res.status === 401) throw new Error('Minecraft no longer accepts this sign-in. Remove the account and add it again.');
+  if (res.status === 429) throw new Error('Mojang allows only a few changes in a short time. Try again in a minute.');
+  if (!res.ok) throw new Error(`Mojang didn't accept the skin: ${data.errorMessage || `HTTP ${res.status}`}`);
+  return activeSkin(data);
 }
 
 // Current name and skin from Mojang's public session server; needs no token, so it works with expired sign-ins.
@@ -150,7 +213,11 @@ async function publicProfile(uuid) {
   if (!res.ok || !res.data.name) throw new Error(`Could not load the Minecraft profile (HTTP ${res.status}).`);
   const textures = (res.data.properties || []).find((p) => p.name === 'textures');
   const skin = textures ? JSON.parse(Buffer.from(textures.value, 'base64').toString('utf8')).textures?.SKIN : null;
-  return { name: res.data.name, skinUrl: skin?.url?.replace(/^http:/, 'https:') || null };
+  return {
+    name: res.data.name,
+    skinUrl: skin?.url?.replace(/^http:/, 'https:') || null,
+    skinVariant: skin?.metadata?.model === 'slim' ? 'slim' : 'classic',
+  };
 }
 
-module.exports = { startDeviceLogin, waitForDeviceLogin, refreshMicrosoft, minecraftLogin, publicProfile };
+module.exports = { startDeviceLogin, waitForDeviceLogin, refreshMicrosoft, minecraftLogin, publicProfile, minecraftProfile, setCape, uploadSkin };

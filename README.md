@@ -22,6 +22,8 @@
 - **Syncing**: share worlds, settings and packs between instances.
 - **Servers**: make a Paper, Purpur or Fabric server and join it in one click. Friends can join over the internet
   through [playit.gg](https://playit.gg), without port forwarding.
+- **Skins and capes**: change your skin and cape from the launcher, with a 3D preview. Skins you add are kept for
+  every account.
 - **Two teas**: a dark **Hojicha** theme and a light **Matcha** theme.
 - **Safe and private**: you sign in on Microsoft's own website, nothing is tracked, and updates install themselves.
 
@@ -49,7 +51,7 @@
 
 | Service | What for |
 | --- | --- |
-| Microsoft, Xbox Live, Minecraft services | Signing in, checking ownership, your skin |
+| Microsoft, Xbox Live, Minecraft services | Signing in, checking ownership, and showing and changing your skin and cape |
 | Mojang | Game versions, libraries, assets and Java runtimes, and your current skin and name at startup |
 | Modrinth | Searching and downloading mods, resource packs, shaders and modpacks |
 | Fabric | Fabric loader versions, and Fabric servers |
@@ -105,7 +107,8 @@ instances\   one folder per instance (the game folder is instances\<name>\minecr
 servers\     servers made with New server
 synced\      worlds, mod configs, resource packs, shader packs, screenshots and options shared between instances,
              and content.json with the Modrinth details of the shared packs
-meta\        Minecraft versions, libraries, assets, Java and playit's agent, shared by all instances
+meta\        Minecraft versions, libraries, assets, Java, the game's font and playit's agent, shared by all instances
+skins\       skins you added or wore, shared by all accounts
 config\      settings, accounts, servers and the playit.gg link
 uninstall.exe, and a Hojicha Launcher shortcut
 ```
@@ -157,7 +160,8 @@ The installer's tweaks (own sub-folder, uninstall that only deletes the launcher
 ```
 src/main.js               Electron main process, IPC, game and server process handling, updates
 src/preload.js            API exposed to the UI
-src/renderer/             UI (HTML/CSS/JS), fonts and icons; theme.js applies the saved theme before the first paint
+src/renderer/             UI (HTML/CSS/JS), fonts and icons; theme.js applies the saved theme before the first paint;
+                          vendor/ holds skinview3d, which draws skins in 3D
 src/core/auth.js          Microsoft -> Xbox Live -> Minecraft sign-in and ownership check
 src/core/accounts.js      account storage, token refresh, offline-account rules
 src/core/minecraft.js     version JSONs, Fabric, downloads, launch arguments
@@ -166,7 +170,8 @@ src/core/modrinth.js      Modrinth search/install/dependencies/versions
 src/core/modpacks.js      installing Modrinth modpacks (.mrpack) as new instances
 src/core/sync.js          instance syncing
 src/core/instances.js     instance storage, play time
-src/core/icons.js         item icons for instances and servers, taken from a downloaded client jar
+src/core/icons.js         item icons for instances and servers, and the font for name tags, from a downloaded client jar
+src/core/skins.js         saved skins: adding them, recognising the same skin twice, removing them
 src/core/servers.js       local servers: creating, starting, server.properties, whitelist
 src/core/serverConfig.js  the Settings and Files tabs: server.properties and config files
 src/core/serverTypes.js   Paper, Purpur and Fabric server downloads
@@ -192,6 +197,7 @@ please [open an issue](../../issues).
 ## License
 
 [MIT](LICENSE). The bundled typeface, Zen Kaku Gothic New, is licensed under the
-[SIL Open Font License 1.1](src/renderer/fonts/OFL.txt). playit.gg's agent is downloaded from its official GitHub
+[SIL Open Font License 1.1](src/renderer/fonts/OFL.txt). The bundled skin viewer, skinview3d (with three.js), is
+licensed under the [MIT License](src/renderer/vendor/skinview3d-LICENSE.txt). playit.gg's agent is downloaded from its official GitHub
 releases and isn't part of this repository. Minecraft is a trademark of Mojang Synergies AB. Hojicha Launcher is not
 an official Minecraft product and is not approved by or associated with Mojang or Microsoft.

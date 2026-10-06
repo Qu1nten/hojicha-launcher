@@ -40,6 +40,7 @@ function summary() {
       type: a.type,
       name: a.name,
       skinUrl: a.skinUrl?.replace(/^http:/, 'https:') || null, // older saved accounts kept http://
+      skinVariant: a.skinVariant === 'slim' ? 'slim' : 'classic',
       locked: a.type === 'offline' && !unlocked,
     })),
   };
@@ -94,6 +95,7 @@ function storeMicrosoft(store, ms, session) {
     name: session.name,
     uuid: session.uuid,
     skinUrl: session.skinUrl,
+    skinVariant: session.skinVariant,
     ownsGame: true,
     refreshToken: cipher.encrypt(ms.refresh_token),
     accessToken: cipher.encrypt(session.accessToken),
@@ -145,9 +147,10 @@ async function refreshProfiles() {
     const profile = profiles[i];
     const account = store.accounts.find((s) => s.id === a.id);
     if (!profile || !account) return;
-    if (account.name !== profile.name || account.skinUrl !== profile.skinUrl) {
+    if (account.name !== profile.name || account.skinUrl !== profile.skinUrl || account.skinVariant !== profile.skinVariant) {
       account.name = profile.name;
       account.skinUrl = profile.skinUrl;
+      account.skinVariant = profile.skinVariant;
       changed = true;
     }
   });
@@ -168,28 +171,70 @@ async function launchIdentity() {
     return { name: account.name, uuid: offlineUuid(account.name), accessToken: '0', userType: 'legacy' };
   }
 
-  if (Date.now() > account.expiresAt - REFRESH_MARGIN_MS) {
-    const ms = await auth.refreshMicrosoft(cipher.decrypt(account.refreshToken));
-    let session;
-    try {
-      session = await auth.minecraftLogin(ms.access_token);
-    } catch (err) {
-      // Lost ownership (e.g. Game Pass ended): offline accounts lock again too.
-      if (err.code === 'not_owned') {
-        account.ownsGame = false;
-        save(store);
-      }
-      throw err;
+  const signedIn = await freshSession(store, account);
+  return { name: signedIn.name, uuid: signedIn.uuid, accessToken: cipher.decrypt(signedIn.accessToken), userType: 'msa' };
+}
+
+// A Microsoft account with a Minecraft token that still works, signing in again (and saving) when it's nearly expired.
+async function freshSession(store, account) {
+  if (Date.now() <= account.expiresAt - REFRESH_MARGIN_MS) return account;
+  const ms = await auth.refreshMicrosoft(cipher.decrypt(account.refreshToken));
+  let session;
+  try {
+    session = await auth.minecraftLogin(ms.access_token);
+  } catch (err) {
+    // Lost ownership (e.g. Game Pass ended): offline accounts lock again too.
+    if (err.code === 'not_owned') {
+      account.ownsGame = false;
+      save(store);
     }
-    const refreshToken = ms.refresh_token || cipher.decrypt(account.refreshToken);
-    const updated = storeMicrosoft(store, { refresh_token: refreshToken }, session);
-    save(store);
-    return { name: updated.name, uuid: updated.uuid, accessToken: session.accessToken, userType: 'msa' };
+    throw err;
   }
-  return { name: account.name, uuid: account.uuid, accessToken: cipher.decrypt(account.accessToken), userType: 'msa' };
+  const refreshToken = ms.refresh_token || cipher.decrypt(account.refreshToken);
+  const updated = storeMicrosoft(store, { refresh_token: refreshToken }, session);
+  save(store);
+  return updated;
+}
+
+// ---------- Skin and cape (Microsoft accounts only) ----------
+
+// A token for the Microsoft account with this id, signing in again when needed.
+async function tokenFor(id) {
+  const store = load();
+  const account = store.accounts.find((a) => a.id === id && a.type === 'microsoft');
+  if (!account) throw new Error('Only Microsoft accounts have a skin and capes.');
+  return cipher.decrypt((await freshSession(store, account)).accessToken);
+}
+
+function rememberSkin(id, skin) {
+  const store = load(); // reload: the store may have changed during a request
+  const account = store.accounts.find((a) => a.id === id);
+  if (account && (account.skinUrl !== skin.skinUrl || account.skinVariant !== skin.skinVariant)) {
+    account.skinUrl = skin.skinUrl;
+    account.skinVariant = skin.skinVariant;
+    save(store);
+  }
+}
+
+// The skin in use (skinUrl, skinVariant) and the capes the account owns.
+async function profile(id) {
+  const result = await auth.minecraftProfile(await tokenFor(id));
+  rememberSkin(id, result);
+  return result;
+}
+
+// Uploads a skin (a checked PNG) for a Microsoft account. variant: 'classic' or 'slim' arms.
+async function changeSkin(id, png, variant) {
+  const skin = await auth.uploadSkin(await tokenFor(id), png, variant === 'slim' ? 'slim' : 'classic');
+  rememberSkin(id, skin);
+}
+
+// capeId: one of the account's capes, or null for none.
+async function setCape(id, capeId) {
+  await auth.setCape(await tokenFor(id), capeId);
 }
 
 module.exports = {
   setCipher, summary, current, select, remove, addOffline, refreshProfiles,
-  startMicrosoftLogin, finishMicrosoftLogin, cancelMicrosoftLogin, launchIdentity,
+  startMicrosoftLogin, finishMicrosoftLogin, cancelMicrosoftLogin, launchIdentity, profile, changeSkin, setCape,
 };

@@ -45,13 +45,17 @@
     </div>
 
     <div class="side-footer">
-      <button type="button" id="account-chip" class="account-chip" title="Accounts">
-        <span id="account-avatar" class="avatar" aria-hidden="true"></span>
-        <span class="account-text">
-          <span id="account-name" class="account-name">Add an account</span>
-          <span id="account-kind" class="account-kind">Needed to play</span>
-        </span>
-      </button>
+      <div class="account-wrap">
+        <button type="button" id="account-chip" class="account-chip" title="Accounts">
+          <span id="account-avatar" class="avatar" aria-hidden="true"></span>
+          <span class="account-text">
+            <span id="account-name" class="account-name">Add an account</span>
+            <span id="account-kind" class="account-kind">Needed to play</span>
+          </span>
+        </button>
+        <!-- Over the face in the chip: a Microsoft account's face opens its skin. -->
+        <button type="button" id="account-face" class="face-overlay skin-button" title="Change skin" aria-label="Change skin" hidden></button>
+      </div>
       <button type="button" id="open-settings" class="settings-button" title="Settings" aria-label="Settings">
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5.2h6.2M12.6 5.2H14M2 10.8h1.4M7.8 10.8H14"/><circle cx="10.4" cy="5.2" r="2"/><circle cx="5.6" cy="10.8" r="2"/></svg>
       </button>
@@ -427,6 +431,52 @@
     </div>
   </dialog>
 
+  <dialog id="skins-dialog" aria-label="Skin">
+    <div class="dialog-body">
+      <div class="skins-layout">
+        <div class="skin-stage">
+          <div class="skin-view">
+            <canvas id="skin-canvas" width="300" height="400" aria-label="The skin in 3D. Drag to turn it."></canvas>
+            <button type="button" id="skin-play" class="skin-play" aria-pressed="false" title="Move" aria-label="Move">
+              <svg class="icon play-icon" viewBox="0 0 16 16" aria-hidden="true"><path class="fill" d="M5 3.3v9.4a.9.9 0 0 0 1.4.75l7.2-4.7a.9.9 0 0 0 0-1.5L6.4 2.55A.9.9 0 0 0 5 3.3z"/></svg>
+              <svg class="icon pause-icon" viewBox="0 0 16 16" aria-hidden="true"><rect class="fill" x="4" y="3" width="2.6" height="10" rx=".8"/><rect class="fill" x="9.4" y="3" width="2.6" height="10" rx=".8"/></svg>
+            </button>
+            <!-- Shows the chosen cape on an elytra, as it looks while flying (a preview: the game picks by what you
+                 wear). Only there when a cape is chosen. -->
+            <button type="button" id="skin-elytra" class="skin-play skin-elytra" aria-pressed="false" title="Show on an elytra" aria-label="Show the cape on an elytra" hidden>
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.6 2.6h6.8M6.7 2.6v9.6M9.3 2.6v9.6"/><path d="M4.9 2.6C3.2 3.1 2.1 4.6 2.1 6.7c0 2.5 1 4.9 2.6 6.5.4.4 1 .4 1.4 0l.6-.9"/><path d="M11.1 2.6c1.7.5 2.8 2 2.8 4.1 0 2.5-1 4.9-2.6 6.5-.4.4-1 .4-1.4 0l-.6-.9"/></svg>
+            </button>
+          </div>
+          <div class="pill-switch" role="radiogroup" aria-label="Arms">
+            <button type="button" role="radio" data-arms="classic" title="4 pixels wide, like Steve">Classic arms</button>
+            <button type="button" role="radio" data-arms="slim" title="3 pixels wide, like Alex">Slim arms</button>
+          </div>
+        </div>
+        <div class="skins-side">
+          <h3>Saved skins</h3>
+          <div id="skin-grid" class="skin-grid"></div>
+          <!-- The cape: what's chosen, and a menu to pick another (it opens upwards, at the window's foot). -->
+          <div class="cape-row">
+            <canvas id="cape-current-art" class="cape-art" width="10" height="16" aria-hidden="true"></canvas>
+            <span class="cape-text">
+              <span class="cape-label">Cape</span>
+              <span id="cape-current-name" class="cape-name">None</span>
+            </span>
+            <div class="more-wrap">
+              <button type="button" id="cape-change" aria-haspopup="menu" aria-expanded="false" aria-controls="cape-menu">Change cape</button>
+              <div id="cape-menu" class="menu cape-menu" role="menu" aria-label="Capes" hidden></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="skins-error" class="error"></div>
+      <div class="dialog-actions">
+        <button type="button" id="skins-cancel" class="quiet">Cancel</button>
+        <button type="button" id="skins-save" class="primary">Save</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="server-dialog">
     <form id="server-form" method="dialog" class="dialog-body">
       <h2>New server</h2>
@@ -555,6 +605,7 @@
     </div>
   </dialog>
 
+  <script src="vendor/skinview3d.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -283,4 +283,18 @@ function list() {
     .map(({ key, ...icon }) => ({ ...icon, category: key.category }));
 }
 
-module.exports = { ensure, has, url, random, list };
+// The game's own lettering (its font sheet) for name tags in the skin window, from the newest jar. Kept in meta\font
+// so it works offline; null before any version was downloaded.
+function fontSheet() {
+  const file = path.join(paths.font, 'ascii.png');
+  if (fs.existsSync(file)) return fs.readFileSync(file);
+  const source = newestJar();
+  if (!source) return null;
+  const png = new AdmZip(source.jar).getEntry('assets/minecraft/textures/font/ascii.png')?.getData();
+  if (!png) return null;
+  fs.mkdirSync(paths.font, { recursive: true });
+  fs.writeFileSync(file, png);
+  return png;
+}
+
+module.exports = { ensure, has, url, random, list, fontSheet };

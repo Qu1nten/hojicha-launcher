@@ -4,6 +4,7 @@ const path = require('path');
 //   instances\   one folder per instance
 //   servers\     servers created in the launcher (added server folders stay where they are)
 //   synced\      worlds, mod configs, resource packs, shader packs, screenshots and options shared between instances
+//   skins\       saved skins (skins.js)
 //   meta\        game versions, libraries, assets, Java runtimes and item icons, shared by all instances
 //   config\      settings, accounts, servers, and Electron's own browser data
 let root = null;
@@ -21,12 +22,14 @@ module.exports = {
   get instances() { return under('instances'); },
   get servers() { return under('servers'); },
   get synced() { return under('synced'); },
+  get skins() { return under('skins'); },
   get versions() { return under('meta', 'versions'); },
   get libraries() { return under('meta', 'libraries'); },
   get assets() { return under('meta', 'assets'); },
   get runtimes() { return under('meta', 'java'); },
   get playit() { return under('meta', 'playit'); },
   get icons() { return under('meta', 'icons'); },
+  get font() { return under('meta', 'font'); },
   get settingsFile() { return under('config', 'settings.json'); },
   get accountsFile() { return under('config', 'accounts.json'); },
   get serversFile() { return under('config', 'servers.json'); },

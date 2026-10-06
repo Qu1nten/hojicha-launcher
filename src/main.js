@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, safeStorage } = require('electron');
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
@@ -18,6 +19,7 @@ const playit = require('./core/playit');
 const accounts = require('./core/accounts');
 const storage = require('./core/storage');
 const borderless = require('./core/borderless');
+const skins = require('./core/skins');
 const { autoUpdater } = require('electron-updater');
 
 const EULA_URL = 'https://aka.ms/MinecraftEULA';
@@ -269,6 +271,73 @@ function registerIpc() {
   handle('accounts:select', (id) => accounts.select(id));
   handle('accounts:remove', (id) => accounts.remove(id));
   handle('accounts:addOffline', (name) => accounts.addOffline(name));
+  // The skin window (the face in the sidebar or under Accounts). Saved skins live in skins/ (core/skins.js), and the
+  // account's own skin joins them when the window opens. Images reach the page as data: URLs, which WebGL can draw.
+  const download = async (url) => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    return Buffer.from(await res.arrayBuffer());
+  };
+  handle('skins:open', async (accountId) => {
+    let profile = null;
+    let error = null;
+    try {
+      profile = await accounts.profile(accountId);
+    } catch (err) {
+      error = `Mojang couldn't be reached, so capes and changes have to wait. ${err.message}`;
+    }
+    // Without Mojang: the skin the launcher last saw, which is public (it may still download).
+    const known = profile || accounts.summary().accounts.find((a) => a.id === accountId);
+    let current = null;
+    if (known?.skinUrl) {
+      try {
+        current = skins.add(await download(known.skinUrl), known.skinVariant);
+      } catch (err) {
+        console.error('Could not save the current skin:', err.message);
+      }
+    }
+    const capes = await Promise.all((profile?.capes || []).map(async (cape) => ({
+      ...cape,
+      url: await download(cape.url).then((png) => `data:image/png;base64,${png.toString('base64')}`, () => null),
+    })));
+    return { skins: skins.list(), current, variant: known?.skinVariant || 'classic', capes, error };
+  });
+  handle('skins:font', () => {
+    const png = icons.fontSheet();
+    return png ? `data:image/png;base64,${png.toString('base64')}` : null;
+  });
+  handle('skins:add', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Add skins',
+      filters: [{ name: 'Minecraft skin', extensions: ['png'] }],
+      properties: ['openFile', 'multiSelections'],
+    });
+    if (result.canceled || !result.filePaths.length) return null;
+    let added = null;
+    const problems = [];
+    for (const file of result.filePaths) {
+      try {
+        added = skins.add(fs.readFileSync(file), 'classic'); // the page guesses the arms from the image
+      } catch (err) {
+        problems.push(`${path.basename(file)}: ${err.message}`);
+      }
+    }
+    return { skins: skins.list(), added, error: problems.join('\n') || null };
+  });
+  handle('skins:remove', (skinId) => {
+    skins.remove(skinId);
+    return skins.list();
+  });
+  // skinId: a saved skin to wear, with variant arms (or null to keep the skin). capeId: a cape, null for none, or
+  // undefined to keep it.
+  handle('skins:apply', async (accountId, { skinId, variant, capeId }) => {
+    if (skinId) {
+      await accounts.changeSkin(accountId, skins.read(skinId), variant);
+      skins.setVariant(skinId, variant);
+    }
+    if (capeId !== undefined) await accounts.setCape(accountId, capeId);
+    return accounts.summary();
+  });
   handle('accounts:loginStart', () => accounts.startMicrosoftLogin());
   handle('accounts:loginFinish', () => accounts.finishMicrosoftLogin());
   handle('accounts:loginCancel', () => accounts.cancelMicrosoftLogin());

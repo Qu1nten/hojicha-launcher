@@ -1044,6 +1044,83 @@ dialog::backdrop { background: var(--backdrop); }
 .check a:hover { color: var(--liquor-text-bright); }
 
 #account-list .avatar { width: 30px; height: 30px; }
+/* A Microsoft account's face changes its skin, with the same + on hover as the item icons. */
+.skin-button { position: relative; padding: 0; border: none; }
+.skin-button::after {
+  content: "+";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.skin-button:hover::after, .skin-button:focus-visible::after { opacity: 1; }
+.account-wrap { position: relative; display: flex; flex: 1; min-width: 0; }
+.face-overlay { position: absolute; left: 8px; top: 50%; width: 32px; height: 32px; margin-top: -16px; border-radius: 6px; background: transparent; }
+.face-overlay:hover:not(:disabled) { background: transparent; }
+.face-overlay[hidden] { display: none; }
+
+/* The skin window: the skin in 3D on the left, saved skins and the cape on the right. */
+#skins-dialog { width: min(940px, calc(100vw - 48px)); }
+.skins-layout { display: grid; grid-template-columns: 300px 1fr; gap: 24px; }
+.skin-stage { display: flex; flex-direction: column; gap: 10px; }
+.skin-view { position: relative; border-radius: 12px; background: var(--roast); }
+#skin-canvas { display: block; width: 300px; height: 400px; cursor: grab; }
+#skin-canvas:active { cursor: grabbing; }
+.skin-play { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border: none; border-radius: 50%; color: var(--steam-dim); background: var(--kiln); }
+.skin-play:hover:not(:disabled) { color: var(--steam); background: var(--kiln-raised); }
+.skin-play .icon { font-size: 14px; }
+.skin-play .pause-icon, .skin-play[aria-pressed="true"] .play-icon { display: none; }
+.skin-play[aria-pressed="true"] .pause-icon { display: block; }
+/* The elytra switch: the same round button, in the bottom corner, filled in while the cape shows on an elytra. */
+.skin-elytra { top: auto; bottom: 10px; }
+.skin-elytra[hidden] { display: none; }
+.skin-elytra .icon { font-size: 18px; }
+.skin-elytra[aria-pressed="true"], .skin-elytra[aria-pressed="true"]:hover:not(:disabled) { color: var(--on-liquor); background: var(--liquor); }
+.pill-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 2px; border: 1px solid var(--clay); border-radius: 999px; }
+.pill-switch button { border: none; border-radius: 999px; padding: 3px 10px; font-size: var(--text-s); color: var(--steam-dim); }
+.pill-switch button[aria-checked="true"], .pill-switch button[aria-checked="true"]:hover { background: var(--liquor); color: var(--on-liquor); cursor: default; }
+/* As tall as the model beside it, whatever it holds: the saved skins scroll inside. */
+.skins-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; height: 0; min-height: 100%; }
+.skins-side h3 { margin: 0; font-size: var(--text-s); font-weight: 700; color: var(--steam-dim); }
+.skins-side h3:not(:first-child) { margin-top: 10px; }
+/* The saved skins fill the side down to the cape row. */
+.skin-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); grid-auto-rows: 140px; gap: 10px; overflow-y: auto; align-content: start; padding: 2px 6px 2px 2px; }
+.skin-grid .hint { grid-column: 1 / -1; margin: 0; }
+.skin-tile { position: relative; }
+.skin-pick, .add-skin { position: relative; width: 100%; height: 100%; padding: 0; border-radius: 10px; }
+.skin-pick { display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; border-color: transparent; background: var(--roast); }
+.skin-pick img { width: 100%; height: 100%; object-fit: contain; }
+.skin-pick:hover:not(:disabled) { border-color: var(--clay); background: var(--kiln-raised); }
+.skin-pick.selected, .skin-pick.selected:hover:not(:disabled) { border-color: var(--liquor); background: var(--kiln-raised); }
+/* What the account wears now: a tick in the corner. */
+.in-use { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: var(--leaf); color: var(--roast); }
+.in-use .icon { font-size: 12px; stroke-width: 2.4; }
+.skin-remove { position: absolute; top: 6px; left: 6px; width: 22px; height: 22px; padding: 0; border: none; border-radius: 50%; font-size: 15px; line-height: 1; color: var(--steam-dim); background: var(--kiln); opacity: 0; }
+.skin-tile:hover .skin-remove, .skin-remove:focus-visible { opacity: 1; }
+.skin-remove:hover:not(:disabled) { color: var(--ember); background: var(--kiln); }
+.add-skin { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px dashed var(--clay); background: transparent; color: var(--steam-dim); }
+.add-skin:hover:not(:disabled) { color: var(--steam); border-color: var(--steam-dim); background: transparent; }
+.add-plus { font-size: 26px; line-height: 1; }
+.add-label { font-size: var(--text-s); font-weight: 500; }
+/* The cape row at the foot of the side: the chosen cape, and Change cape, whose menu opens upwards. */
+.cape-row { display: flex; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid var(--clay); }
+.cape-art { width: 15px; height: 24px; flex-shrink: 0; image-rendering: pixelated; }
+.cape-art-none { display: block; border: 1px dashed var(--edge); border-radius: 2px; }
+.cape-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.cape-label { font-size: var(--text-xs); color: var(--steam-dim); }
+.cape-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cape-menu { top: auto; bottom: calc(100% + 6px); min-width: 240px; max-height: 320px; overflow-y: auto; }
+.cape-menu > button { display: flex; align-items: center; gap: 10px; }
+.cape-tick { display: grid; place-items: center; color: var(--liquor-text); font-size: 14px; }
+.cape-tick .icon { stroke-width: 2.2; }
+#skins-error { white-space: pre-line; } /* one line per skin file that couldn't be added */
 #account-list .kind { font-size: var(--text-xs); color: var(--steam-dim); }
 #account-list .selected-note { font-size: var(--text-s); color: var(--leaf-text); padding: 0 10px; }
 
