@@ -10,15 +10,12 @@ const instances = require('./instances');
 // Everything is synced unless the instance switched it off (instance.sync[item] === false).
 const FOLDERS = ['saves', 'resourcepacks', 'shaderpacks', 'screenshots', 'config'];
 const FILES = ['options.txt', 'servers.dat'];
-// Schematics are one item for three mods' folders, each linked to its own folder in synced\schematics (see
-// schematics.js): Litematica's in the game folder, WorldEdit's and Axiom's inside config. While config is synced,
-// those two links sit in the shared config, so they're shared whatever this instance's schematics switch says.
+// Schematics are one item for three mods' folders, all linked to synced\schematics (see schematics.js), so every
+// mod sees every schematic (each skips the kinds it can't read): Litematica's in the game folder, WorldEdit's and
+// Axiom's inside config. While config is synced, those two links sit in the shared config, so they're shared
+// whatever this instance's schematics switch says.
 const SCHEMATICS = 'schematics';
-const SCHEMATIC_FOLDERS = [
-  ['schematics', 'litematic'],
-  [path.join('config', 'worldedit', 'schematics'), 'schematic'],
-  [path.join('config', 'axiom', 'blueprints'), 'blueprint'],
-];
+const SCHEMATIC_FOLDERS = ['schematics', path.join('config', 'worldedit', 'schematics'), path.join('config', 'axiom', 'blueprints')];
 const ITEMS = [...FOLDERS, SCHEMATICS, ...FILES];
 // Folders whose entries are whole units (a world is a folder): a name clash keeps both, renaming the newcomer,
 // instead of merging two worlds' files into one.
@@ -181,11 +178,30 @@ function seedFile(local, shared) {
 // config is shared (they're in the shared config then).
 function ownSchematicFolders(gameDir) {
   const configShared = isLink(path.join(gameDir, 'config'));
-  return SCHEMATIC_FOLDERS.filter(([local]) => !(configShared && local.startsWith(`config${path.sep}`)));
+  return SCHEMATIC_FOLDERS.filter((local) => !(configShared && local.startsWith(`config${path.sep}`)));
 }
 
 function linkSchematics(gameDir) {
-  for (const [local, shared] of SCHEMATIC_FOLDERS) linkPath(path.join(gameDir, local), path.join(paths.schematics, shared), true);
+  for (const local of SCHEMATIC_FOLDERS) linkPath(path.join(gameDir, local), paths.schematics, true);
+}
+
+// The first version kept each mod's schematics in a folder of its own in synced\schematics (litematic\, schematic\,
+// blueprint\). Their files move up, once: a marker remembers it, so a group named like one of them is left alone.
+// The links into those folders are pointed at synced\schematics again by linkSchematics.
+function flattenOldSchematicFolders() {
+  const marker = path.join(path.dirname(paths.settingsFile), 'schematics-flat');
+  if (fs.existsSync(marker)) return;
+  for (const name of ['litematic', 'schematic', 'blueprint']) {
+    const dir = path.join(paths.schematics, name);
+    if (isLink(dir) || !fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir)) {
+      const from = path.join(dir, entry);
+      fs.renameSync(from, freeName(paths.schematics, entry, fs.statSync(from).isFile()));
+    }
+    fs.rmdirSync(dir);
+  }
+  fs.mkdirSync(path.dirname(marker), { recursive: true });
+  fs.writeFileSync(marker, 'Schematics are kept in synced\\schematics itself, not a folder per mod.\n');
 }
 
 function setSync(id, item, enabled) {
@@ -194,7 +210,7 @@ function setSync(id, item, enabled) {
   const gameDir = instances.gameDir(id);
   if (item === SCHEMATICS) {
     if (enabled) linkSchematics(gameDir);
-    else for (const [local, shared] of ownSchematicFolders(gameDir)) unlinkPath(path.join(gameDir, local), path.join(paths.schematics, shared), true);
+    else for (const local of ownSchematicFolders(gameDir)) unlinkPath(path.join(gameDir, local), paths.schematics, true);
   } else if (FOLDERS.includes(item)) {
     if (enabled) linkFolder(gameDir, item);
     else unlinkFolder(gameDir, item, true);
@@ -203,9 +219,8 @@ function setSync(id, item, enabled) {
     if (item === 'config' && isSynced(instance, SCHEMATICS)) {
       linkSchematics(gameDir);
     } else if (item === 'config' && !enabled) {
-      for (const [local, shared] of SCHEMATIC_FOLDERS.filter(([l]) => l.startsWith(`config${path.sep}`))) {
-        const from = path.join(paths.schematics, shared);
-        if (fs.existsSync(from)) fs.cpSync(from, path.join(gameDir, local), { recursive: true, force: false });
+      for (const local of SCHEMATIC_FOLDERS.filter((l) => l.startsWith(`config${path.sep}`))) {
+        if (fs.existsSync(paths.schematics)) fs.cpSync(paths.schematics, path.join(gameDir, local), { recursive: true, force: false });
       }
     }
   } else if (enabled) {
@@ -255,6 +270,11 @@ function deleteInstance(id) {
 // Re-points every synced folder at synced/. Junctions store absolute paths, so they go stale when the
 // launcher folder is moved; run at startup (and for new instances) so instance folders always look right.
 function relinkAll() {
+  try {
+    flattenOldSchematicFolders();
+  } catch (err) {
+    console.error('Could not move the schematics out of their old folders:', err.message);
+  }
   for (const instance of instances.list()) linkFolders(instance);
 }
 

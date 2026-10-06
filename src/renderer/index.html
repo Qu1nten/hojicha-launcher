@@ -38,7 +38,7 @@
       <!-- The Schematics view: everything Litematica, WorldEdit and Axiom saved, in 3D. -->
       <ul class="side-list library-list">
         <li id="schematics-row">
-          <span class="item-icon library-icon" aria-hidden="true">
+          <span class="library-icon" aria-hidden="true">
             <svg class="icon" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" rx="2"/><path d="M1.5 6h13M1.5 10h13M6 1.5v13M10 1.5v13"/></svg>
           </span>
           <button type="button" id="open-schematics" class="side-select">
@@ -174,7 +174,7 @@
       <header class="view-header">
         <div class="heading">
           <h1>Schematics</h1>
-          <p class="meta">Shared by every instance. Litematica, WorldEdit and Axiom save here.</p>
+          <p class="meta">Shared by every instance. Litematica, WorldEdit and Axiom save here. Drop schematics or folders of them on the launcher to add them.</p>
         </div>
         <div class="header-actions">
           <button type="button" id="schematics-folder" class="quiet">Open folder</button>
@@ -190,6 +190,13 @@
         <input id="schem-filter" type="search" placeholder="Filter" spellcheck="false" autocomplete="off" aria-label="Filter schematics">
       </div>
       <p id="schem-note" class="hint schem-note" hidden></p>
+      <!-- While schematics are picked (the circle on each one): what to do with them. -->
+      <div id="schem-selection" class="schem-selection" hidden>
+        <span id="schem-selected-count" class="schem-selected-count" role="status"></span>
+        <button type="button" id="schem-group">Create group</button>
+        <button type="button" id="schem-delete-selected" class="danger">Delete</button>
+        <button type="button" id="schem-select-cancel" class="quiet">Cancel</button>
+      </div>
       <div class="tab-scroll schem-scroll">
         <div id="schem-list"></div>
       </div>
@@ -545,6 +552,22 @@
     </div>
   </dialog>
 
+  <!-- Create group: the picked schematics go into a folder of that name in synced\schematics (an existing one if
+       the name is taken). -->
+  <dialog id="group-dialog">
+    <form id="group-form" method="dialog" class="dialog-body">
+      <h2>Create group</h2>
+      <label for="group-name" class="hint">A folder in your schematics. Type the name of a group that's there to add to it.</label>
+      <input id="group-name" type="text" maxlength="64" spellcheck="false" autocomplete="off" list="group-names" required>
+      <datalist id="group-names"></datalist>
+      <div id="group-error" class="error"></div>
+      <div class="dialog-actions">
+        <button type="button" id="group-cancel" class="quiet">Cancel</button>
+        <button type="submit" id="group-create" class="primary">Create group</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="server-dialog">
     <form id="server-form" method="dialog" class="dialog-body">
       <h2>New server</h2>
@@ -675,7 +698,6 @@
 
   <script src="vendor/skinview3d.js"></script>
   <script src="vendor/deepslate.js"></script>
-  <script src="vendor/legacy-blocks.js"></script>
   <script src="schematics.js"></script>
   <script src="app.js"></script>
 </body>

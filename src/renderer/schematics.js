@@ -1,8 +1,8 @@
-// The schematics viewer's reading and drawing (the view itself is in app.js): Litematica (.litematic), WorldEdit
-// (.schem, .schematic) and Axiom (.bp) files read into one shape, and drawn in 3D by deepslate (vendor/deepslate.js)
-// with the game's own block models and textures, which main.js unpacks from a downloaded game (core/blocks.js).
+// The schematics viewer's drawing (the view itself is in app.js): schematics, read by main.js (core/schematicFile.js),
+// drawn in 3D by deepslate (vendor/deepslate.js) with the game's own block models and textures, which main.js unpacks
+// from a downloaded game (core/blocks.js).
 (() => {
-  const { NbtFile, BlockState, Structure, StructureRenderer, BlockDefinition, BlockModel, TextureAtlas, Mesh, SpecialRenderers } = globalThis.deepslate;
+  const { BlockState, Structure, StructureRenderer, BlockDefinition, BlockModel, TextureAtlas, Mesh, SpecialRenderers } = globalThis.deepslate;
 
   // deepslate merges each block's faces into its chunk by copying the chunk's whole list every time, which makes big
   // schematics take minutes; adding them to the end does the same in a moment.
@@ -66,6 +66,9 @@
     }
     if (options.normal) this.normalBuffer = fill(this.quads, 4, 3, this.normalBuffer, vector('normal'));
     if (options.blockPos) this.blockPosBuffer = fill(this.quads, 4, 3, this.blockPosBuffer, vector('blockPos'));
+    // Once they're on the graphics card, the faces themselves aren't needed: only how many there are (a big build's
+    // faces would otherwise take gigabytes).
+    this.uploaded = { quads: this.quads.length, lines: this.lines.length };
     if (!this.quads.length) {
       if (this.indexBuffer) gl.deleteBuffer(this.indexBuffer);
       this.indexBuffer = undefined;
@@ -82,7 +85,20 @@
       }
       this.indexBuffer = upload(this.indexBuffer, gl.ELEMENT_ARRAY_BUFFER, indices);
     }
+    this.quads = [];
+    this.lines = [];
     return this;
+  };
+  // ...so the counts come from what was uploaded until faces are added again.
+  const counted = (mesh, kind) => mesh[kind].length || mesh.uploaded?.[kind] || 0;
+  Mesh.prototype.quadVertices = function quadVertices() { return counted(this, 'quads') * 4; };
+  Mesh.prototype.quadIndices = function quadIndices() { return counted(this, 'quads') * 6; };
+  Mesh.prototype.lineVertices = function lineVertices() { return counted(this, 'lines') * 2; };
+  Mesh.prototype.isEmpty = function isEmpty() { return !counted(this, 'quads') && !counted(this, 'lines'); };
+  const clearMesh = Mesh.prototype.clear;
+  Mesh.prototype.clear = function clear() {
+    this.uploaded = null;
+    return clearMesh.call(this);
   };
 
   // deepslate draws blocks the game used to draw in code (chests, beds, signs...) with code of its own. Newer game
@@ -93,277 +109,57 @@
     ? new Mesh()
     : drawSpecial.call(SpecialRenderers, state, nbt, resources, cull));
 
-  const AIR = new Set(['minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'minecraft:structure_void']);
-  // More blocks than this take too long to draw (half a minute or so) to be worth trying.
-  const MAX_BLOCKS = 1000000;
-
-  // ---------- Reading ----------
-
-  // What every reader gives back: the size, a palette of block states, and each block as a position and an index
-  // into the palette (air left out). entities: block entity data by "x,y,z", for signs, chests and the like.
-  function makeModel(palette, count) {
-    return {
-      size: [0, 0, 0],
-      palette, // [{ name: 'minecraft:oak_stairs', props: { facing: 'east' } }]
-      count: 0,
-      x: new Int32Array(count),
-      y: new Int32Array(count),
-      z: new Int32Array(count),
-      state: new Uint32Array(count),
-      entities: new Map(),
-    };
-  }
-
-  function addBlock(model, x, y, z, state) {
-    if (model.count >= model.x.length) throw new Error('This schematic has too many blocks to show.');
-    const i = model.count++;
-    model.x[i] = x;
-    model.y[i] = y;
-    model.z[i] = z;
-    model.state[i] = state;
-  }
-
-  // Trims the model to its blocks: the air around them doesn't count towards its size, so it's framed and turned
-  // around what's actually there. Moves the blocks so the smallest corner is 0,0,0.
-  function finish(model) {
-    const n = model.count;
-    for (const axis of ['x', 'y', 'z']) model[axis] = model[axis].slice(0, n);
-    model.state = model.state.slice(0, n);
-    if (!n) {
-      model.size = [0, 0, 0];
-      model.entities = new Map();
-      return model;
-    }
-    const axes = [model.x, model.y, model.z];
-    const min = [Infinity, Infinity, Infinity];
-    const max = [-Infinity, -Infinity, -Infinity];
-    for (let a = 0; a < 3; a++) {
-      const values = axes[a];
-      for (let i = 0; i < n; i++) {
-        if (values[i] < min[a]) min[a] = values[i];
-        if (values[i] > max[a]) max[a] = values[i];
-      }
-      for (let i = 0; i < n; i++) values[i] -= min[a];
-    }
-    model.size = max.map((v, a) => v - min[a] + 1);
-    const entities = new Map();
-    for (const [key, nbt] of model.entities) {
-      const [x, y, z] = key.split(',').map(Number);
-      entities.set(`${x - min[0]},${y - min[1]},${z - min[2]}`, nbt);
-    }
-    model.entities = entities;
-    return model;
-  }
-
   const fullName = (name) => (name.includes(':') ? name : `minecraft:${name}`);
 
-  // "minecraft:oak_stairs[facing=east,half=bottom]" -> { name, props }
-  function parseState(text) {
-    const open = text.indexOf('[');
-    if (open === -1) return { name: fullName(text.trim()), props: {} };
-    const props = {};
-    for (const pair of text.slice(open + 1, text.lastIndexOf(']')).split(',')) {
-      const [key, value] = pair.split('=');
-      if (key && value !== undefined) props[key.trim()] = value.trim();
-    }
-    return { name: fullName(text.slice(0, open).trim()), props };
-  }
+  // ---------- Models from the reader ----------
 
-  // A palette entry stored as { Name, Properties: { key: value } } (Litematica, Axiom).
-  function stateFromNbt(tag) {
-    const props = {};
-    if (tag.hasCompound('Properties')) {
-      tag.getCompound('Properties').forEach((key, value) => { props[key] = value.getAsString(); });
-    }
-    return { name: fullName(tag.getString('Name')), props };
-  }
+  // Schematic files are read in the main process (core/schematicFile.js, in a thread of its own), into a model: a
+  // palette of block states ({ name, props }), and each block as x, y, z and an index into it (typed arrays), the
+  // size, and the block entity data of signs, banners and the like. A huge build comes shrunk (scale: blocks to a
+  // cell); realSize and realCount are its size and blocks before that.
 
-  // Palettes merged into one: gives a state's index, adding it the first time it's seen.
-  function paletteIndex(palette) {
-    const keys = new Map();
-    return (state) => {
-      const key = JSON.stringify(state);
-      if (!keys.has(key)) {
-        keys.set(key, palette.length);
-        palette.push(state);
+  // Block entity data from the reader (tags as { t: type, v: value }) as deepslate's tags.
+  function toNbt(tag) {
+    const { NbtByte, NbtShort, NbtInt, NbtLong, NbtFloat, NbtDouble, NbtString, NbtList, NbtCompound, NbtByteArray,
+      NbtIntArray, NbtLongArray } = globalThis.deepslate;
+    const bytes = (v) => new DataView(v.buffer, v.byteOffset, v.byteLength);
+    switch (tag.t) {
+      case 1: return new NbtByte(tag.v);
+      case 2: return new NbtShort(tag.v);
+      case 3: return new NbtInt(tag.v);
+      case 4: return new NbtLong(tag.v);
+      case 5: return new NbtFloat(tag.v);
+      case 6: return new NbtDouble(tag.v);
+      case 8: return new NbtString(tag.v);
+      case 9: return new NbtList(tag.v.map(toNbt), tag.of);
+      case 10: return new NbtCompound(new Map(Object.entries(tag.v).map(([k, v]) => [k, toNbt(v)])));
+      case 7: return new NbtByteArray(tag.v ? Array.from(tag.v, (b) => (b << 24) >> 24) : []);
+      case 11: {
+        const view = tag.v && bytes(tag.v);
+        return new NbtIntArray(view ? Array.from({ length: view.byteLength / 4 }, (_, i) => view.getInt32(i * 4)) : []);
       }
-      return keys.get(key);
-    };
-  }
-
-  // A long array as 32-bit words, low word first, so bits can be read across longs.
-  function words(longArray) {
-    const items = longArray.getItems();
-    const out = new Uint32Array(items.length * 2 + 1);
-    items.forEach((long, i) => {
-      const [high, low] = long.getAsPair();
-      out[2 * i] = low;
-      out[2 * i + 1] = high;
-    });
-    return out;
-  }
-
-  // bits bits (at most 31) starting at bit number start.
-  function bitsAt(w, start, bits) {
-    const i = Math.floor(start / 32);
-    const offset = start % 32;
-    let value = w[i] >>> offset;
-    if (offset + bits > 32) value |= w[i + 1] << (32 - offset);
-    return value & ((1 << bits) - 1);
-  }
-
-  const bitsFor = (paletteLength, least) => Math.max(least, Math.ceil(Math.log2(Math.max(1, paletteLength))));
-
-  function checkCount(n) {
-    if (n > MAX_BLOCKS * 20) throw new Error('This schematic is too big to show.');
-  }
-
-  // WorldEdit's Sponge schematic, versions 1 to 3. Blocks go x fastest, then z, then y, as varints into the palette.
-  function readSponge(root) {
-    const s = root.hasCompound('Schematic') ? root.getCompound('Schematic') : root;
-    const version = s.getNumber('Version');
-    const [w, h, l] = ['Width', 'Height', 'Length'].map((k) => s.getNumber(k) & 0xffff);
-    checkCount(w * h * l);
-    const blocksTag = version >= 3 ? s.getCompound('Blocks') : s;
-    const palette = [];
-    blocksTag.getCompound('Palette').forEach((key, value) => { palette[value.getAsNumber()] = parseState(key); });
-    const data = blocksTag.getByteArray(version >= 3 ? 'Data' : 'BlockData').getItems();
-    const model = makeModel(palette, Math.min(w * h * l, MAX_BLOCKS + 1));
-    let index = 0;
-    for (let p = 0; p < data.length && index < w * h * l;) {
-      let value = 0;
-      let shift = 0;
-      let byte;
-      do {
-        byte = data[p++].getAsNumber() & 0xff;
-        value |= (byte & 0x7f) << shift;
-        shift += 7;
-      } while (byte & 0x80 && p < data.length);
-      const state = palette[value];
-      if (state && !AIR.has(state.name)) addBlock(model, index % w, Math.floor(index / (w * l)), Math.floor(index / w) % l, value);
-      index++;
-    }
-    const entityList = blocksTag.has('BlockEntities') ? blocksTag.getList('BlockEntities', 10) : s.getList('TileEntities', 10);
-    entityList.forEach((entity) => {
-      const pos = entity.getIntArray('Pos').getItems().map((n) => n.getAsNumber());
-      if (pos.length === 3) model.entities.set(pos.join(','), entity.hasCompound('Data') ? entity.getCompound('Data') : entity);
-    });
-    return finish(model);
-  }
-
-  // The old .schematic of MCEdit and of WorldEdit before 1.13: block numbers and data values, x fastest, then z,
-  // then y, turned into today's block states with minecraft-data's table (vendor/legacy-blocks.js). Numbers past 255
-  // keep their extra bits in AddBlocks, half a byte each.
-  function readLegacy(root) {
-    const [w, h, l] = ['Width', 'Height', 'Length'].map((k) => root.getNumber(k) & 0xffff);
-    checkCount(w * h * l);
-    const ids = root.getByteArray('Blocks').getItems();
-    const values = root.getByteArray('Data').getItems();
-    const extra = root.has('AddBlocks') ? root.getByteArray('AddBlocks').getItems() : null;
-    const palette = [];
-    const indexOf = paletteIndex(palette);
-    const byNumber = new Map(); // "id:data" -> palette index, or -1 for air
-    const model = makeModel(palette, Math.min(w * h * l, MAX_BLOCKS + 1));
-    const count = Math.min(ids.length, w * h * l);
-    for (let i = 0; i < count; i++) {
-      let id = ids[i].getAsNumber() & 0xff;
-      if (extra) id |= ((extra[i >> 1].getAsNumber() >> ((i & 1) ? 0 : 4)) & 0xf) << 8;
-      if (!id) continue;
-      const key = `${id}:${(values[i]?.getAsNumber() ?? 0) & 0xf}`;
-      let state = byNumber.get(key);
-      if (state === undefined) {
-        const text = globalThis.legacyBlocks?.[key] ?? globalThis.legacyBlocks?.[`${id}:0`];
-        const parsed = text ? parseState(text) : { name: `hojicha:unknown_${id}`, props: {} }; // shows as missing
-        state = AIR.has(parsed.name) ? -1 : indexOf(parsed);
-        byNumber.set(key, state);
+      case 12: {
+        const view = tag.v && bytes(tag.v);
+        return new NbtLongArray(view ? Array.from({ length: view.byteLength / 8 }, (_, i) => [view.getInt32(i * 8), view.getInt32(i * 8 + 4)]) : []);
       }
-      if (state >= 0) addBlock(model, i % w, Math.floor(i / (w * l)), Math.floor(i / w) % l, state);
+      default: return new NbtCompound();
     }
-    return finish(model);
   }
 
-  // Litematica: one or more regions, each with its own palette and blocks packed tightly into longs (a value may run
-  // over into the next long), x fastest, then z, then y. A region's size is negative when it was drawn backwards.
-  function readLitematic(root) {
-    const regions = [];
-    let total = 0;
-    root.getCompound('Regions').forEach((name, region) => {
-      const pos = ['x', 'y', 'z'].map((k) => region.getCompound('Position').getNumber(k));
-      const size = ['x', 'y', 'z'].map((k) => region.getCompound('Size').getNumber(k));
-      const min = pos.map((p, i) => p + (size[i] < 0 ? size[i] + 1 : 0));
-      const dims = size.map(Math.abs);
-      total += dims[0] * dims[1] * dims[2];
-      regions.push({ region, min, dims });
-    });
-    checkCount(total);
-    const palette = [];
-    const indexOf = paletteIndex(palette); // one palette for all regions
-    const model = makeModel(palette, Math.min(total, MAX_BLOCKS + 1));
-    for (const { region, min, dims } of regions) {
-      const local = region.getList('BlockStatePalette', 10).map((tag) => indexOf(stateFromNbt(tag)));
-      const bits = bitsFor(local.length, 2);
-      const w = words(region.getLongArray('BlockStates'));
-      const [sx, sy, sz] = dims;
-      const count = sx * sy * sz;
-      for (let i = 0; i < count; i++) {
-        const state = local[bitsAt(w, i * bits, bits)];
-        if (state === undefined || AIR.has(palette[state].name)) continue;
-        addBlock(model, min[0] + (i % sx), min[1] + Math.floor(i / (sx * sz)), min[2] + (Math.floor(i / sx) % sz), state);
+  // A model from the reader, ready to draw: its block entities found by "x,y,z".
+  function prepare(model) {
+    if (Array.isArray(model.entities)) {
+      const entities = new Map();
+      for (const { pos, nbt } of model.entities) {
+        try {
+          entities.set(pos.join(','), toNbt(nbt));
+        } catch {
+          // a sign without its text is still a sign
+        }
       }
-      region.getList('TileEntities', 10).forEach((entity) => {
-        const at = ['x', 'y', 'z'].map((k) => entity.getNumber(k));
-        model.entities.set(at.map((n, i) => n + min[i]).join(','), entity);
-      });
+      model.entities = entities;
     }
-    model.author = root.getCompound('Metadata').getString('Author') || null;
-    return finish(model);
-  }
-
-  // Axiom's blueprint: a magic number, a header (name, author...), a preview picture, then the blocks as gzipped NBT
-  // in 16x16x16 sections like the game's chunks (values never run over into the next long).
-  function readAxiom(bytes) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    if (view.getUint32(0) !== 0x0ae5bb36) throw new Error("This isn't an Axiom blueprint.");
-    let offset = 4;
-    const part = () => {
-      const length = view.getInt32(offset);
-      const start = offset + 4;
-      offset = start + length;
-      return bytes.subarray(start, start + length);
-    };
-    const header = NbtFile.read(part()).root;
-    part(); // the preview picture
-    const root = NbtFile.read(part()).root;
-    const sections = root.getList('BlockRegion', 10);
-    checkCount(sections.length * 4096);
-    const palette = [];
-    const indexOf = paletteIndex(palette);
-    const model = makeModel(palette, Math.min(sections.length * 4096, MAX_BLOCKS + 1));
-    sections.forEach((section) => {
-      const origin = ['X', 'Y', 'Z'].map((k) => section.getNumber(k) * 16);
-      const states = section.getCompound('BlockStates');
-      const local = states.getList('palette', 10).map((tag) => indexOf(stateFromNbt(tag)));
-      const data = states.has('data') ? words(states.getLongArray('data')) : null;
-      const bits = bitsFor(local.length, 4);
-      const perLong = Math.floor(64 / bits);
-      for (let i = 0; i < 4096; i++) {
-        const state = local[data ? bitsAt(data, Math.floor(i / perLong) * 64 + (i % perLong) * bits, bits) : 0];
-        if (state === undefined || AIR.has(palette[state].name)) continue;
-        addBlock(model, origin[0] + (i & 15), origin[1] + (i >> 8), origin[2] + ((i >> 4) & 15), state);
-      }
-    });
-    model.author = header.getString('Author') || null;
-    return finish(model);
-  }
-
-  // Reads a schematic file's bytes (type: 'litematica', 'worldedit' or 'axiom'). A WorldEdit file may be either
-  // kind of .schematic: the Sponge one (with a palette) or the old one (with block numbers).
-  function read(bytes, type) {
-    if (type === 'axiom') return readAxiom(bytes);
-    const root = NbtFile.read(bytes).root;
-    if (type === 'litematica') return readLitematic(root);
-    const legacy = root.has('Blocks') && !root.hasCompound('Blocks') && !root.hasCompound('Schematic');
-    return legacy ? readLegacy(root) : readSponge(root);
+    return model;
   }
 
   // Blocks the game renamed: a schematic from before the rename asks for the old name, one from after it for the
@@ -376,15 +172,50 @@
     ['minecraft:chain', 'minecraft:iron_chain'], // 1.21.9
   ];
 
-  // The model as a deepslate structure, its blocks under the names the loaded game knows them by.
+  // A box this many blocks big or smaller gets a map of where every block is (2 bytes a block), to leave out the ones
+  // that can't be seen. Bigger ones are drawn whole.
+  const MAX_MAPPED = 64 * 1024 * 1024;
+
+  // The model as a deepslate structure, its blocks under the names the loaded game knows them by. Blocks closed in
+  // on all six sides by solid full blocks can never be seen, so they're left out: a solid build is drawn as its
+  // surface, which is what makes big ones possible. deepslate still finds them as neighbours (getBlock), so the
+  // faces against them stay hidden.
   function structureOf(model, resources) {
     const states = model.palette.map((s) => new BlockState(resources.nameOf(s.name), s.props));
-    const blocks = new Array(model.count);
-    for (let i = 0; i < model.count; i++) {
-      const pos = [model.x[i], model.y[i], model.z[i]];
-      blocks[i] = { pos, state: model.state[i], nbt: model.entities.get(pos.join(',')) };
+    const size = model.size.map((n) => Math.max(1, n));
+    const [w, h, d] = size;
+    let grid = null; // palette index + 1 for each block of the box, 0 for air
+    if (w * h * d <= MAX_MAPPED && model.palette.length < 65535) {
+      grid = new Uint16Array(w * h * d);
+      for (let i = 0; i < model.count; i++) grid[(model.y[i] * d + model.z[i]) * w + model.x[i]] = model.state[i] + 1;
     }
-    return new Structure(model.size.map((n) => Math.max(1, n)), states, blocks);
+    const opaque = states.map((state) => Boolean(resources.getBlockFlags(state.getName())?.opaque));
+    const solid = (x, y, z) => {
+      if (x < 0 || y < 0 || z < 0 || x >= w || y >= h || z >= d) return false;
+      const cell = grid[(y * d + z) * w + x];
+      return cell > 0 && opaque[cell - 1];
+    };
+    const blocks = [];
+    for (let i = 0; i < model.count; i++) {
+      const x = model.x[i];
+      const y = model.y[i];
+      const z = model.z[i];
+      if (grid && solid(x - 1, y, z) && solid(x + 1, y, z) && solid(x, y - 1, z) && solid(x, y + 1, z)
+        && solid(x, y, z - 1) && solid(x, y, z + 1)) continue;
+      const pos = [x, y, z];
+      blocks.push({ pos, state: model.state[i], nbt: model.entities.get(`${x},${y},${z}`) });
+    }
+    const structure = new Structure(size, states, blocks);
+    if (grid) {
+      const shown = structure.getBlock.bind(structure);
+      structure.getBlock = (pos) => {
+        const block = shown(pos);
+        if (block || !structure.isInside(pos)) return block;
+        const cell = grid[(pos[1] * d + pos[2]) * w + pos[0]];
+        return cell ? { pos, state: states[cell - 1] } : null;
+      };
+    }
+    return structure;
   }
 
   // ---------- The game's blocks ----------
@@ -422,7 +253,7 @@
       }
       if (y + row <= size) break;
     }
-    const canvas = Object.assign(document.createElement('canvas'), { width: size, height: size });
+    const canvas = new OffscreenCanvas(size, size); // works in the preview worker too
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, 16, 16);
@@ -681,7 +512,7 @@
         chunks.get(key).blocks.push(block);
       }
       const order = [...chunks.values()].sort((a, b) => a.pos[1] - b.pos[1] || a.pos[0] - b.pos[0] || a.pos[2] - b.pos[2]);
-      const total = Math.max(1, model.count);
+      const total = Math.max(1, order.reduce((n, chunk) => n + chunk.blocks.length, 0));
       let done = 0;
       let started = performance.now();
       for (const chunk of order) {
@@ -701,7 +532,10 @@
           started = performance.now();
         }
       }
-      renderer.chunkBuilder.structure = structure;
+      // Built: the blocks were only needed for building (and take a lot of memory for a big one).
+      const nothing = new Structure([1, 1, 1]);
+      renderer.structure = nothing;
+      renderer.chunkBuilder.structure = nothing;
       onProgress?.(1);
       return true;
     }
@@ -739,5 +573,5 @@
     }
   }
 
-  globalThis.schematicKit = { read, loadResources, View, MAX_BLOCKS };
+  globalThis.schematicKit = { prepare, loadResources, View };
 })();

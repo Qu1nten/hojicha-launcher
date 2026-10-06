@@ -25,7 +25,8 @@
 - **Skins and capes**: change your skin and cape from the launcher, with a 3D preview. Skins you add are kept for
   every account.
 - **Schematics**: everything you save with Litematica, WorldEdit or Axiom (.litematic, .schem, .schematic, .bp), in
-  one shared folder and in 3D to turn and zoom. Drop schematic files on the launcher to add them.
+  one shared folder and in 3D to turn and zoom. Drop schematic files or folders on the launcher to add them, and sort
+  them into groups.
 - **Two teas**: a dark **Hojicha** theme and a light **Matcha** theme.
 - **Safe and private**: you sign in on Microsoft's own website, nothing is tracked, and updates install themselves.
 
@@ -108,8 +109,8 @@ app\         the launcher itself
 instances\   one folder per instance (the game folder is instances\<name>\minecraft)
 servers\     servers made with New server
 synced\      worlds, mod configs, resource packs, shader packs, screenshots and options shared between instances,
-             content.json with the Modrinth details of the shared packs, and schematics\ (litematic\, schematic\
-             and blueprint\: what Litematica, WorldEdit and Axiom save)
+             content.json with the Modrinth details of the shared packs, and schematics\ (what Litematica, WorldEdit
+             and Axiom save, its folders being groups)
 meta\        Minecraft versions, libraries, assets, Java, the game's font and block models, schematic pictures and
              playit's agent, shared by all instances
 skins\       skins you added or wore, shared by all accounts
@@ -165,8 +166,9 @@ The installer's tweaks (own sub-folder, uninstall that only deletes the launcher
 src/main.js               Electron main process, IPC, game and server process handling, updates
 src/preload.js            API exposed to the UI
 src/renderer/             UI (HTML/CSS/JS), fonts and icons; theme.js applies the saved theme before the first paint;
-                          schematics.js reads schematics and draws them in 3D; vendor/ holds skinview3d, which draws
-                          skins in 3D, deepslate, which draws blocks, and the old block numbers for .schematic files
+                          schematics.js draws schematics in 3D (preview-worker.js draws the tile pictures away from
+                          the page); vendor/ holds skinview3d, which draws skins in 3D, and deepslate, which draws
+                          blocks
 src/core/auth.js          Microsoft -> Xbox Live -> Minecraft sign-in and ownership check
 src/core/accounts.js      account storage, token refresh, offline-account rules
 src/core/minecraft.js     version JSONs, Fabric, downloads, launch arguments
@@ -177,7 +179,9 @@ src/core/sync.js          instance syncing, schematics included
 src/core/instances.js     instance storage, play time
 src/core/icons.js         item icons for instances and servers, and the font for name tags, from a downloaded client jar
 src/core/skins.js         saved skins: adding them, recognising the same skin twice, removing them
-src/core/schematics.js    the Schematics view's files: listing, reading, their saved pictures
+src/core/schematics.js    the Schematics view's files: listing, groups, their saved pictures
+src/core/schematicFile.js reads a schematic as a stream, in a thread of its own, shrinking huge ones to fit;
+                          legacyBlocks.js holds the old block numbers for .schematic files
 src/core/blocks.js        block models and textures for the schematics view, from a downloaded client jar
 src/core/servers.js       local servers: creating, starting, server.properties, whitelist
 src/core/serverConfig.js  the Settings and Files tabs: server.properties and config files
@@ -195,7 +199,8 @@ build/release.js          publishes a built installer as a GitHub release (npm r
 - Synced `options.txt` is shared as-is, so syncing it between very different versions can mix up settings.
 - Synced worlds are upgraded when opened in a newer version and may not open in older ones afterwards.
 - The schematics view draws vanilla blocks with the newest downloaded game version: blocks from mods show as
-  missing-texture cubes. Schematics of more than a million blocks aren't drawn.
+  missing-texture cubes. Very big schematics take a while to draw, and huge ones are shown with less detail (one
+  block for each small cube of them).
 - Online play uses playit.gg's own address for each server; your own domain isn't supported.
 
 ## Contact

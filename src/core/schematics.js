@@ -1,19 +1,18 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { Worker } = require('worker_threads');
 const paths = require('./paths');
 const instances = require('./instances');
 const sync = require('./sync');
 
-// The schematics viewer's files: everything in synced\schematics (litematic\, schematic\ and blueprint\, which
-// Litematica, WorldEdit and Axiom save to through sync.js), and the schematic folders of instances that keep their
-// own. The page reads and draws them (renderer/schematics.js); each one's preview picture is kept in
-// meta\schematic-previews, so it's drawn once.
+// The schematics viewer's files: everything in synced\schematics (where Litematica, WorldEdit and Axiom save, through
+// sync.js), its folders being groups, and the schematic folders of instances that keep their own. The page reads and
+// draws them (renderer/schematics.js); each one's preview picture is kept in meta\schematic-previews, so it's drawn
+// once.
 
 const TYPES = { '.litematic': 'litematica', '.schem': 'worldedit', '.schematic': 'worldedit', '.bp': 'axiom' };
-// Where each kind is kept in synced\schematics (the folders sync.js links the mods' folders to).
-const FOLDERS = { litematica: 'litematic', worldedit: 'schematic', axiom: 'blueprint' };
-const MAX_BYTES = 200 * 1024 * 1024; // bigger than any schematic the page could draw
+const MAX_BYTES = 200 * 1024 * 1024; // the most a dropped file can be (it comes in through the page)
 // Bump when previews are drawn differently, so they're all drawn again.
 const PREVIEW_FORMAT = 2;
 
@@ -42,7 +41,7 @@ function roots() {
   for (const instance of instances.list()) {
     if (sync.isSynced(instance, sync.SCHEMATICS)) continue;
     const gameDir = instances.gameDir(instance.id);
-    for (const [local] of sync.ownSchematicFolders(gameDir)) {
+    for (const local of sync.ownSchematicFolders(gameDir)) {
       const dir = path.join(gameDir, local);
       if (!sync.isLink(dir)) list.push({ dir, instance: { id: instance.id, name: instance.name } });
     }
@@ -116,10 +115,33 @@ function list() {
   return items.sort((a, b) => b.modified - a.modified).map(({ key, ...item }) => item);
 }
 
-function read(file) {
+// Reads a schematic into a compact block list (schematicFile.js), in a thread of its own: a file too big for the
+// memory it's allowed only stops that thread. cells: how much detail at most (see schematicFile.js). onProgress(fraction)
+// as it reads.
+function load(file, cells, onProgress) {
   const checked = check(file);
-  if (fs.statSync(checked).size > MAX_BYTES) throw new Error("This schematic is too big to show.");
-  return fs.readFileSync(checked);
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(path.join(__dirname, 'schematicFile.js'), {
+      workerData: { file: checked, kind: typeOf(checked), cells: Number(cells) || undefined },
+      resourceLimits: { maxOldGenerationSizeMb: 3072 },
+    });
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      worker.terminate();
+      fn(value);
+    };
+    worker.on('message', (message) => {
+      if (message.progress !== undefined) onProgress?.(message.progress);
+      else if (message.error) finish(reject, new Error(message.error));
+      else finish(resolve, message.model);
+    });
+    worker.on('error', (err) => finish(reject, err.code === 'ERR_WORKER_OUT_OF_MEMORY'
+      ? new Error('This schematic needs more memory than the launcher can give it.')
+      : err));
+    worker.on('exit', () => finish(reject, new Error('Reading the schematic stopped.')));
+  });
 }
 
 // Saves the picture the page drew of a schematic, with what it showed: { size: [x, y, z], blocks }.
@@ -135,34 +157,105 @@ function savePreview(file, dataUrl, info) {
   fs.writeFileSync(previewFile(key, 'json'), JSON.stringify({ size, blocks }));
 }
 
-// "house.litematic" -> "house (2).litematic" when the name is taken in dir.
-function freeName(dir, name) {
-  const ext = path.extname(name);
+// "house.litematic" -> "house (2).litematic" when the name is taken in dir ("trees" -> "trees (2)" for a folder).
+function freeName(dir, name, isFile = true) {
+  const ext = isFile ? path.extname(name) : '';
   const base = name.slice(0, name.length - ext.length);
   let target = path.join(dir, name);
   for (let n = 2; fs.existsSync(target); n++) target = path.join(dir, `${base} (${n})${ext}`);
   return target;
 }
 
-// Files dropped on the launcher ({ name, data }): each schematic goes into its kind's shared folder, so every
-// instance's mod finds it. Returns the paths they were saved to and the names of the files that aren't schematics.
+// A dropped file's path, split into names safe to make on Windows ("../x" and "C:" can't reach outside).
+function safeParts(name) {
+  const parts = String(name).split(/[\\/]+/)
+    .map((part) => part.replace(/[<>:"|?*\x00-\x1f]/g, '').trim().replace(/[. ]+$/, ''))
+    .filter((part) => part && part !== '.' && part !== '..');
+  return parts.length ? parts : null;
+}
+
+// Files and folders dropped on the launcher: [{ name, data }], name being a path for what's inside a dropped folder
+// ("dragon_tree/dragon_tree_1.bp"). A schematic goes into the shared folder, and a folder becomes a group there, kept
+// whole (mods' own files in it too, like Axiom's ordering). Everything is written to meta\schematic-imports first and
+// moved in once it's all there, in one step: the game's mods watch the folder and read what turns up straight away,
+// and one that finds a file still being written can crash the game (Axiom does). A name that's taken keeps both.
+// Returns how many schematics were added, and the names of the loose files that aren't schematics.
 function importFiles(files) {
-  const added = [];
+  const staging = path.join(paths.schematicImports, crypto.randomBytes(6).toString('hex'));
+  const entries = new Map(); // what's put in synced\schematics: name -> { folder }
   const skipped = [];
-  for (const file of files) {
-    const name = path.basename(String(file.name));
-    const type = typeOf(name);
-    if (!type || !file.data?.length || file.data.length > MAX_BYTES) {
-      skipped.push(name);
-      continue;
+  let added = 0;
+  try {
+    for (const file of files) {
+      const parts = safeParts(file.name);
+      if (!parts) continue;
+      const loose = parts.length === 1;
+      if (loose && !typeOf(parts[0])) {
+        skipped.push(parts[0]);
+        continue;
+      }
+      if (!file.data || file.data.length > MAX_BYTES) {
+        skipped.push(parts.join('/'));
+        continue;
+      }
+      const target = path.join(staging, ...parts);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, Buffer.from(file.data));
+      entries.set(parts[0], { folder: !loose });
+      if (typeOf(parts[parts.length - 1])) added++;
     }
-    const dir = path.join(paths.schematics, FOLDERS[type]);
-    fs.mkdirSync(dir, { recursive: true });
-    const target = freeName(dir, name);
-    fs.writeFileSync(target, Buffer.from(file.data));
-    added.push(target);
+    fs.mkdirSync(paths.schematics, { recursive: true });
+    for (const [name, { folder }] of entries) {
+      fs.renameSync(path.join(staging, name), freeName(paths.schematics, name, !folder));
+    }
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true, maxRetries: 5 });
   }
   return { added, skipped };
 }
 
-module.exports = { list, read, check, savePreview, importFiles };
+// A group's folder name: what was typed, without the characters Windows doesn't allow in names.
+function groupName(name) {
+  const clean = String(name).replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim().replace(/[. ]+$/, '').slice(0, 64);
+  if (!clean || /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(clean)) throw new Error('Give the group a name.');
+  return clean;
+}
+
+// Moves shared schematics into a group: a folder in synced\schematics, made if it isn't there yet (an existing group
+// gets them added). A name that's taken there keeps both. Their pictures move with them. Returns the new list.
+function group(files, name) {
+  const dir = path.join(paths.schematics, groupName(name));
+  const moving = files.map(check);
+  if (moving.some((file) => !isInside(file, paths.schematics))) throw new Error('Only shared schematics can be put in a group.');
+  fs.mkdirSync(dir, { recursive: true });
+  for (const file of moving) {
+    if (path.dirname(file) === dir) continue;
+    const stat = fs.statSync(file);
+    const target = freeName(dir, path.basename(file));
+    fs.renameSync(file, target);
+    const from = previewKey(file, stat);
+    const to = previewKey(target, fs.statSync(target));
+    for (const ext of ['png', 'json']) {
+      try {
+        fs.renameSync(previewFile(from, ext), previewFile(to, ext));
+      } catch {
+        // no picture yet
+      }
+    }
+  }
+  return list();
+}
+
+// The shared groups' names, to add to one that's there.
+function groups() {
+  try {
+    return fs.readdirSync(paths.schematics, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !sync.isLink(path.join(paths.schematics, entry.name)))
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
+}
+
+module.exports = { list, load, check, savePreview, importFiles, group, groups };

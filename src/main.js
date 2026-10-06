@@ -353,7 +353,10 @@ function registerIpc() {
   // The Schematics view (core/schematics.js lists them; the page reads and draws them with core/blocks.js's block
   // models). Deleting moves a file to the Recycle Bin, so it can be brought back.
   handle('schematics:list', () => schematics.list());
-  handle('schematics:read', (file) => schematics.read(file));
+  // Read in a thread of their own; how far it got goes to the page as it reads.
+  ipcMain.handle('schematics:load', (event, file, cells) => schematics.load(file, cells, (fraction) => {
+    if (!event.sender.isDestroyed()) event.sender.send('schematics:progress', file, fraction);
+  }));
   handle('schematics:blocks', () => blocks.get());
   handle('schematics:savePreview', (file, dataUrl, info) => schematics.savePreview(file, dataUrl, info));
   handle('schematics:reveal', (file) => shell.showItemInFolder(schematics.check(file)));
@@ -362,10 +365,12 @@ function registerIpc() {
     return shell.openPath(paths.schematics);
   });
   handle('schematics:import', (files) => schematics.importFiles(files));
-  handle('schematics:trash', async (file) => {
-    await shell.trashItem(schematics.check(file));
+  handle('schematics:trash', async (files) => {
+    for (const file of files.map(schematics.check)) await shell.trashItem(file);
     return schematics.list();
   });
+  handle('schematics:group', (files, name) => schematics.group(files, name));
+  handle('schematics:groups', () => schematics.groups());
   handle('accounts:loginStart', () => accounts.startMicrosoftLogin());
   handle('accounts:loginFinish', () => accounts.finishMicrosoftLogin());
   handle('accounts:loginCancel', () => accounts.cancelMicrosoftLogin());
@@ -671,6 +676,11 @@ function createWindow() {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
+  // If the page ever crashes (out of memory, say), the window would stay empty: start it again instead.
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('The launcher page stopped:', details.reason, details.exitCode);
+    if (details.reason !== 'clean-exit' && !win.isDestroyed()) win.reload();
+  });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'), { query: { theme } }); // read by renderer/theme.js
 }
 

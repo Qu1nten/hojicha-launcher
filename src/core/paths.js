@@ -35,6 +35,7 @@ module.exports = {
   get font() { return under('meta', 'font'); },
   get blocks() { return under('meta', 'blocks'); },
   get schematicPreviews() { return under('meta', 'schematic-previews'); },
+  get schematicImports() { return under('meta', 'schematic-imports'); },
   get settingsFile() { return under('config', 'settings.json'); },
   get accountsFile() { return under('config', 'accounts.json'); },
   get serversFile() { return under('config', 'servers.json'); },
