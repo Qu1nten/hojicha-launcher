@@ -17,6 +17,7 @@ const serverConfig = require('./core/serverConfig');
 const playit = require('./core/playit');
 const accounts = require('./core/accounts');
 const storage = require('./core/storage');
+const borderless = require('./core/borderless');
 const { autoUpdater } = require('electron-updater');
 
 const EULA_URL = 'https://aka.ms/MinecraftEULA';
@@ -175,10 +176,14 @@ async function launch(id, options = {}) {
     const { java, args } = await minecraft.prepare(instance, gameDir, launchSettings, account, report, options);
     unpackIcons(); // a newer version may bring new items
     sync.beforeLaunch(instance);
+    const fullscreenKey = launchSettings.borderless ? borderless.prepare(gameDir) : null; // after sync: it copies options.txt in
 
     log(id, `> Launching ${instance.name} (${instance.gameVersion} ${instance.loader}) as ${account.name}`);
     const child = spawn(java, args, { cwd: gameDir, windowsHide: true });
     running.set(id, child);
+    const windowHelper = launchSettings.borderless
+      ? borderless.watch(child.pid, fullscreenKey, (error) => log(id, `> Borderless window didn't work: ${error}`))
+      : null;
     const started = Date.now();
     instances.save({ ...instances.get(id), lastPlayed: started });
     status(id, 'running', 'Playing', 1);
@@ -190,6 +195,7 @@ async function launch(id, options = {}) {
       if (finished) return;
       finished = true;
       running.delete(id);
+      windowHelper?.kill(); // it also stops by itself when the game is gone
       try {
         const current = instances.get(id);
         instances.save({ ...current, playtime: (current.playtime || 0) + (Date.now() - started) });
