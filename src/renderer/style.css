@@ -948,6 +948,16 @@ dialog {
   border-radius: 14px;
 }
 dialog::backdrop { background: var(--backdrop); }
+/* Popups and their backdrop fade in and out. display and overlay are carried along so a closing popup stays on
+   screen until it has faded. */
+dialog, dialog::backdrop {
+  opacity: 0;
+  transition: opacity 140ms ease-out, display 140ms allow-discrete, overlay 140ms allow-discrete;
+}
+dialog[open], dialog[open]::backdrop { opacity: 1; }
+@starting-style {
+  dialog[open], dialog[open]::backdrop { opacity: 0; }
+}
 .dialog-body { display: flex; flex-direction: column; gap: 12px; }
 .dialog-body h2 { font-size: var(--text-l); font-weight: 700; margin-bottom: 4px; }
 #close-text { white-space: pre-line; }

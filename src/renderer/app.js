@@ -2593,6 +2593,26 @@ function cancelMicrosoftLogin() {
   for (const dialog of dialogs) watcher.observe(dialog, { attributes: true, attributeFilter: ['open'] });
 }
 
+// A click outside a popup (on its backdrop) closes it, as Escape does: through its cancel event, so a popup that
+// refuses Escape refuses this too. The press must start outside as well, so a drag that ends there (turning the
+// skin, selecting text) doesn't count. With a menu open in the popup, that click only closes the menu.
+for (const dialog of document.querySelectorAll('dialog')) {
+  const outside = (event) => {
+    if (event.target !== dialog) return false; // the backdrop counts as the dialog itself; its padding does too
+    const box = dialog.getBoundingClientRect();
+    return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+  };
+  let pressedOutside = false;
+  dialog.addEventListener('pointerdown', (event) => {
+    pressedOutside = outside(event) && !dialog.querySelector('.menu:not([hidden])');
+  });
+  dialog.addEventListener('click', (event) => {
+    if (!pressedOutside || !outside(event)) return;
+    pressedOutside = false;
+    if (dialog.dispatchEvent(new Event('cancel', { cancelable: true }))) dialog.close();
+  });
+}
+
 api.onStatus(({ id, state: s, text, progress }) => {
   const previous = state.status[id];
   // Starting and closing the game update last played and play time: fetch them.
