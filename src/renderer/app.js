@@ -4,6 +4,7 @@ const $ = (selector) => document.querySelector(selector);
 const SYNC_ITEMS = [
   ['saves', 'Worlds', 'Every world shows up in every instance. Opening one in a newer version upgrades it.'],
   ['config', 'Mod settings', 'One shared config folder, so mod settings carry over.'],
+  ['schematics', 'Schematics', 'Litematica, WorldEdit and Axiom save to one shared folder.'],
   ['resourcepacks', 'Resource packs', 'One shared resource pack folder.'],
   ['shaderpacks', 'Shader packs', 'One shared shader pack folder.'],
   ['screenshots', 'Screenshots', 'All screenshots end up in one folder.'],
@@ -16,7 +17,7 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const state = {
   instances: [],
   selected: null,
-  view: 'instance', // or 'server'
+  view: 'instance', // or 'server', 'settings', 'schematics'
   servers: [],
   selectedServer: null,
   serverStatus: {}, // id -> { state, text }
@@ -183,6 +184,9 @@ function renderSidebar() {
     [...document.querySelectorAll('#sidebar li[data-key]')].find((li) => li.dataset.key === focusKey)?.querySelector(`.${focusClass}`)?.focus();
   }
   $('#open-settings').classList.toggle('active', state.view === 'settings');
+  $('#schematics-row').classList.toggle('active', state.view === 'schematics');
+  if (state.view === 'schematics') $('#open-schematics').setAttribute('aria-current', 'page');
+  else $('#open-schematics').removeAttribute('aria-current');
   renderActivity();
 }
 
@@ -304,13 +308,16 @@ function renderUpdate() {
 }
 
 function renderMain() {
+  const showSchematics = state.view === 'schematics';
   const showSettings = state.view === 'settings';
-  const showServer = !showSettings && state.view === 'server' && currentServer();
-  const showInstance = !showSettings && !showServer && current();
-  $('#empty').hidden = Boolean(showSettings || showServer || showInstance);
+  const showServer = !showSettings && !showSchematics && state.view === 'server' && currentServer();
+  const showInstance = !showSettings && !showSchematics && !showServer && current();
+  $('#empty').hidden = Boolean(showSchematics || showSettings || showServer || showInstance);
+  $('#schematics-view').hidden = !showSchematics;
   $('#settings-view').hidden = !showSettings;
   $('#server-view').hidden = !showServer;
   $('#instance-view').hidden = !showInstance;
+  if (showSchematics) renderSchematics();
   if (showSettings) renderAppSettings();
   if (showServer) renderServer();
   if (showInstance) renderInstance();
@@ -326,6 +333,7 @@ const MAX_HISTORY = 50;
 
 function here() {
   if (state.view === 'settings') return { view: 'settings', id: '', tab: '' };
+  if (state.view === 'schematics') return { view: 'schematics', id: '', tab: '' };
   if (state.view === 'server' && currentServer()) return { view: 'server', id: state.selectedServer, tab: state.serverTab };
   if (current()) return { view: 'instance', id: state.selected, tab: state.tab };
   return null;
@@ -350,6 +358,8 @@ function goTo(place) {
   try {
     if (place.view === 'settings') {
       openSettings();
+    } else if (place.view === 'schematics') {
+      openSchematics();
     } else if (place.view === 'server') {
       selectServer(place.id);
       if (state.view === 'server' && state.selectedServer === place.id) showServerTab(place.tab);
@@ -2579,6 +2589,397 @@ function cancelMicrosoftLogin() {
   $('#add-microsoft').disabled = false;
 }
 
+// ---------- Schematics ----------
+
+// The Schematics view (the row above Instances): every schematic Litematica, WorldEdit and Axiom saved, shared ones
+// first, then those of instances that keep their own (core/schematics.js). Each tile is a picture of it in 3D,
+// drawn once and kept (renderer/schematics.js draws it, with the block models core/blocks.js unpacks from a
+// downloaded game). Clicking one opens it big, to turn and zoom. Schematic files dropped on the launcher are added.
+const SCHEM_TYPES = { litematica: 'Litematica', worldedit: 'WorldEdit', axiom: 'Axiom' };
+// Pictures are drawn without asking, a few seconds for 100,000 blocks (the launcher keeps going meanwhile): bigger
+// schematics get theirs only when opened.
+const PREVIEW_MAX_BLOCKS = 300000;
+const schem = {
+  items: null, // from api.listSchematics(), or null until loaded
+  kind: 'all', // the filter: all, litematica, worldedit or axiom
+  filter: '',
+  failed: new Map(), // path -> why its picture couldn't be drawn
+  tiles: new Map(), // path -> its tile, so a finished picture can be put in
+  resources: null, // Promise of the block resources, or of null without a downloaded game
+  previewRun: 0,
+};
+
+function openSchematics() {
+  if (state.view === 'server' && !confirmDiscard(openSchematics)) return;
+  state.view = 'schematics';
+  renderSidebar();
+  renderMain();
+  loadSchematics();
+}
+
+async function loadSchematics() {
+  showSchemNote('');
+  try {
+    schem.items = await api.listSchematics();
+  } catch (err) {
+    schem.items = schem.items || [];
+    showSchemNote(errorText(err));
+  }
+  renderSchematicsCount();
+  if (state.view === 'schematics') {
+    renderSchematics();
+    drawMissingPreviews();
+  }
+}
+
+function renderSchematicsCount() {
+  const n = schem.items?.length;
+  $('#schematics-count').textContent = n === undefined ? 'Litematica, WorldEdit, Axiom' : `${n} ${n === 1 ? 'file' : 'files'}`;
+}
+
+function showSchemNote(text) {
+  $('#schem-note').textContent = text;
+  $('#schem-note').hidden = !text;
+}
+
+// The block models, unpacked by main.js and turned into deepslate's resources once. Null before a game version is
+// downloaded (there's nothing to draw blocks with).
+function blockResources() {
+  if (!schem.resources) {
+    schem.resources = api.blockAssets()
+      .then((assets) => (assets ? schematicKit.loadResources(assets) : null))
+      .catch((err) => {
+        schem.resources = null; // try again next time
+        throw err;
+      });
+  }
+  return schem.resources;
+}
+
+const schemSize = (size) => size.join(' × ');
+const schemBlocks = (n) => `${n.toLocaleString()} ${n === 1 ? 'block' : 'blocks'}`;
+
+function schematicTile(item) {
+  const picture = el('div', { className: 'schem-pic' }, [el('span', { className: 'schem-type', textContent: SCHEM_TYPES[item.type] })]);
+  if (item.preview) picture.prepend(el('img', { src: item.preview.url, alt: '', draggable: false }));
+  else picture.prepend(el('span', { className: 'schem-pic-text', textContent: schem.failed.get(item.path) || '' }));
+  const sub = item.preview ? `${schemSize(item.preview.size)} · ${schemBlocks(item.preview.blocks)}` : item.folder;
+  const tile = el('button', { type: 'button', className: 'schem-tile', title: item.name }, [
+    picture,
+    el('span', { className: 'schem-text' }, [
+      el('span', { className: 'schem-name', textContent: item.name }),
+      el('span', { className: 'schem-sub', textContent: sub || SCHEM_TYPES[item.type] }),
+    ]),
+  ]);
+  tile.onclick = () => openSchematic(item);
+  schem.tiles.set(item.path, tile);
+  return tile;
+}
+
+function renderSchematics() {
+  for (const button of document.querySelectorAll('#schem-kinds [data-kind]')) {
+    button.classList.toggle('active', button.dataset.kind === schem.kind);
+  }
+  schem.tiles.clear();
+  const list = $('#schem-list');
+  if (!schem.items) {
+    list.replaceChildren(el('p', { className: 'hint', textContent: 'Looking for schematics...' }));
+    return;
+  }
+  if (!schem.items.length) {
+    list.replaceChildren(el('p', { className: 'hint schem-empty', textContent: 'No schematics yet. Save one with Litematica, WorldEdit or Axiom and it shows up here. You can also put files in the folder.' }));
+    return;
+  }
+  const words = schem.filter.trim().toLowerCase();
+  const shown = schem.items.filter((item) => (schem.kind === 'all' || item.type === schem.kind)
+    && (!words || item.name.toLowerCase().includes(words)));
+  if (!shown.length) {
+    list.replaceChildren(el('p', { className: 'hint', textContent: words ? `Nothing matches "${schem.filter.trim()}".` : `No ${SCHEM_TYPES[schem.kind]} schematics.` }));
+    return;
+  }
+  // Shared ones first, then a group for each instance that keeps its own.
+  const groups = new Map([[null, []]]);
+  for (const item of shown) {
+    const key = item.instance?.id ?? null;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  list.replaceChildren(...[...groups].flatMap(([id, items]) => {
+    if (!items.length) return [];
+    const grid = el('div', { className: 'schem-grid' }, items.map(schematicTile));
+    if (id === null) return [grid];
+    return [
+      el('h3', { className: 'schem-group' }, [
+        `Only in ${items[0].instance.name}`,
+        el('span', { textContent: "Schematics aren't shared for this instance" }),
+      ]),
+      grid,
+    ];
+  }));
+}
+
+// Draws the pictures of schematics that don't have one yet, one at a time, and keeps them (main.js saves them).
+// Opening the view again starts a new run; the old one stops.
+async function drawMissingPreviews() {
+  const run = ++schem.previewRun;
+  const missing = (schem.items || []).filter((item) => !item.preview && !schem.failed.has(item.path));
+  if (!missing.length) return;
+  let resources;
+  try {
+    resources = await blockResources();
+  } catch (err) {
+    showSchemNote(`The blocks couldn't be loaded, so there are no pictures. ${errorText(err)}`);
+    return;
+  }
+  if (!resources) {
+    showSchemNote('Pictures of your schematics show up once a game version is downloaded: play any instance once.');
+    return;
+  }
+  if (!schem.thumbView) {
+    const canvas = Object.assign(document.createElement('canvas'), { width: 480, height: 360 });
+    schem.thumbView = new schematicKit.View(canvas, resources, { keepPicture: true });
+    schem.thumbView.zoom = 0.85; // the picture keeps a margin, whichever way the schematic is shaped
+  }
+  const view = schem.thumbView;
+  for (const item of missing) {
+    if (run !== schem.previewRun) return;
+    try {
+      const model = schematicKit.read(await api.readSchematic(item.path), item.type);
+      if (model.count > PREVIEW_MAX_BLOCKS) {
+        schem.failed.set(item.path, `${schemBlocks(model.count)}: open it to see it`);
+      } else {
+        if (!(await view.show(model))) return; // a newer run took over
+        view.draw();
+        const url = view.canvas.toDataURL('image/png');
+        const info = { size: model.size, blocks: model.count };
+        await api.saveSchematicPreview(item.path, url, info);
+        item.preview = { ...info, url };
+      }
+    } catch (err) {
+      console.error(`Could not draw ${item.path}:`, err);
+      schem.failed.set(item.path, /too big|too many/i.test(errorText(err)) ? 'Too big to show' : "Couldn't read this file");
+    }
+    const old = schem.tiles.get(item.path);
+    if (old?.isConnected) old.replaceWith(schematicTile(item));
+    await new Promise((resolve) => setTimeout(resolve)); // let the page breathe between files
+  }
+}
+
+// ---- The big view ----
+
+const schemOpen = { item: null, view: null, frame: 0 };
+
+function drawSchematicSoon() {
+  if (schemOpen.frame) return;
+  schemOpen.frame = requestAnimationFrame(() => {
+    schemOpen.frame = 0;
+    const { view } = schemOpen;
+    if (!view || !$('#schem-dialog').open) return;
+    // Sharp on high-DPI screens: as many pixels as the screen shows.
+    const canvas = view.canvas;
+    const width = Math.round(canvas.clientWidth * devicePixelRatio);
+    const height = Math.round(canvas.clientHeight * devicePixelRatio);
+    if (canvas.width !== width || canvas.height !== height) Object.assign(canvas, { width, height });
+    view.draw();
+  });
+}
+
+// The bar under the schematic while it's being built: fraction done, or null to hide it.
+function showSchematicProgress(fraction) {
+  const bar = $('#schem-progress');
+  bar.hidden = fraction === null;
+  if (fraction === null) return;
+  const percent = Math.round(fraction * 100);
+  bar.firstElementChild.style.width = `${percent}%`;
+  bar.setAttribute('aria-valuenow', String(percent));
+}
+
+async function openSchematic(item) {
+  schemOpen.item = item;
+  const where = item.instance ? ` · in ${item.instance.name}` : '';
+  $('#schem-name').textContent = item.name;
+  $('#schem-meta').textContent = `${SCHEM_TYPES[item.type]}${where}`;
+  $('#schem-stage-text').textContent = 'Reading...';
+  showSchematicProgress(null);
+  schemOpen.view?.clear();
+  $('#schem-dialog').showModal();
+  drawSchematicSoon(); // clears what was shown before
+  let model;
+  let resources;
+  try {
+    [resources, model] = await Promise.all([
+      blockResources(),
+      api.readSchematic(item.path).then((bytes) => schematicKit.read(bytes, item.type)),
+    ]);
+  } catch (err) {
+    if (schemOpen.item === item) $('#schem-stage-text').textContent = `Couldn't read this file. ${errorText(err)}`;
+    return;
+  }
+  if (schemOpen.item !== item || !$('#schem-dialog').open) return;
+  const author = model.author ? ` · by ${model.author}` : '';
+  $('#schem-meta').textContent = `${SCHEM_TYPES[item.type]}${author} · ${schemSize(model.size)} · ${schemBlocks(model.count)}${where}`;
+  if (!resources) {
+    $('#schem-stage-text').textContent = 'The 3D view needs a downloaded game version: play any instance once.';
+    return;
+  }
+  if (model.count > schematicKit.MAX_BLOCKS) {
+    $('#schem-stage-text').textContent = 'This schematic is too big to show in 3D.';
+    return;
+  }
+  if (!model.count) {
+    $('#schem-stage-text').textContent = 'This schematic is empty.';
+    return;
+  }
+  $('#schem-stage-text').textContent = '';
+  try {
+    if (!schemOpen.view) schemOpen.view = new schematicKit.View($('#schem-canvas'), resources);
+  } catch (err) {
+    $('#schem-stage-text').textContent = errorText(err);
+    return;
+  }
+  // It's built a few chunks at a time, from the bottom up, and shown as it grows. The bar only shows up when that
+  // takes a moment, so small ones don't flash it.
+  const view = schemOpen.view;
+  view.reset();
+  let fraction = 0;
+  const barTimer = setTimeout(() => showSchematicProgress(fraction), 150);
+  const done = await view.show(model, (f) => {
+    fraction = f;
+    if (!$('#schem-progress').hidden) showSchematicProgress(f);
+    drawSchematicSoon();
+  });
+  clearTimeout(barTimer);
+  if (!done) return; // another schematic was opened, or the window closed
+  showSchematicProgress(null);
+  drawSchematicSoon();
+}
+
+async function deleteSchematic() {
+  const { item } = schemOpen;
+  if (!item) return;
+  const yes = await askConfirm({
+    title: `Delete ${item.name}?`,
+    text: item.instance ? `It's moved to the Recycle Bin, from ${item.instance.name}.` : "It's moved to the Recycle Bin, and it's gone from every instance.",
+    confirm: 'Delete',
+    cancel: 'Keep it',
+  });
+  if (!yes) return;
+  try {
+    schem.items = await api.trashSchematic(item.path);
+  } catch (err) {
+    $('#schem-stage-text').textContent = errorText(err);
+    return;
+  }
+  $('#schem-dialog').close();
+  renderSchematicsCount();
+  renderSchematics();
+}
+
+// Schematic files dropped anywhere on the launcher go to the shared schematics folder for their kind (main.js puts
+// them there), and the Schematics view opens with them. While a popup is open, it handles drops itself (the skin
+// window takes skins) or they're ignored. dragenter and dragleave fire for every element passed over, so they're
+// counted to know when the files have really left.
+const SCHEMATIC_FILE = /\.(litematic|schem|schematic|bp)$/i;
+
+async function importSchematics(files) {
+  const wanted = files.filter((file) => SCHEMATIC_FILE.test(file.name));
+  const others = files.filter((file) => !SCHEMATIC_FILE.test(file.name)).map((file) => file.name);
+  openSchematics();
+  let result = { added: [], skipped: [] };
+  try {
+    if (wanted.length) {
+      result = await api.importSchematics(await Promise.all(wanted.map(async (file) => ({
+        name: file.name,
+        data: new Uint8Array(await file.arrayBuffer()),
+      }))));
+    }
+  } catch (err) {
+    showSchemNote(errorText(err));
+    return;
+  }
+  await loadSchematics();
+  const skipped = [...others, ...result.skipped];
+  const n = result.added.length;
+  showSchemNote([
+    n ? `Added ${n} ${n === 1 ? 'schematic' : 'schematics'}.` : '',
+    skipped.length ? `${skipped.join(', ')} ${skipped.length === 1 ? "isn't a schematic" : "aren't schematics"} (.litematic, .schem, .schematic or .bp).` : '',
+  ].filter(Boolean).join(' '));
+}
+
+{
+  let depth = 0;
+  const draggingFiles = (event) => event.dataTransfer?.types.includes('Files') && !document.querySelector('dialog[open]');
+  const end = () => {
+    depth = 0;
+    document.body.classList.remove('dropping-files');
+  };
+  window.addEventListener('dragenter', (event) => {
+    if (!draggingFiles(event)) return;
+    event.preventDefault();
+    depth++;
+    document.body.classList.add('dropping-files');
+  });
+  window.addEventListener('dragover', (event) => {
+    if (!draggingFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+  window.addEventListener('dragleave', (event) => {
+    if (!draggingFiles(event)) return;
+    if (--depth <= 0) end();
+  });
+  window.addEventListener('drop', (event) => {
+    if (!draggingFiles(event)) return;
+    event.preventDefault();
+    end();
+    const files = [...event.dataTransfer.files];
+    if (files.length) importSchematics(files);
+  });
+}
+
+// Drag to turn, right-drag (or Shift-drag) to move, scroll to zoom, double-click to look from the start again.
+{
+  const canvas = $('#schem-canvas');
+  let drag = null;
+  canvas.addEventListener('pointerdown', (event) => {
+    if (!schemOpen.view?.model) return;
+    const { yaw, pitch, pan } = schemOpen.view;
+    drag = { x: event.clientX, y: event.clientY, yaw, pitch, pan: [...pan], move: event.button === 2 || event.shiftKey };
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener('pointermove', (event) => {
+    if (!drag) return;
+    const view = schemOpen.view;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (drag.move) {
+      const scale = 2 / canvas.clientHeight / view.zoom;
+      view.pan = [drag.pan[0] + dx * scale, drag.pan[1] - dy * scale];
+    } else {
+      view.yaw = drag.yaw + dx * 0.01;
+      view.pitch = Math.max(-1.5, Math.min(1.5, drag.pitch + dy * 0.01));
+    }
+    drawSchematicSoon();
+  });
+  const end = () => { drag = null; };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+  canvas.addEventListener('wheel', (event) => {
+    if (!schemOpen.view?.model) return;
+    event.preventDefault();
+    const view = schemOpen.view;
+    view.zoom = Math.max(0.3, Math.min(20, view.zoom * Math.exp(-event.deltaY * 0.0015)));
+    drawSchematicSoon();
+  }, { passive: false });
+  canvas.addEventListener('dblclick', () => {
+    if (!schemOpen.view?.model) return;
+    schemOpen.view.reset();
+    drawSchematicSoon();
+  });
+  new ResizeObserver(drawSchematicSoon).observe(canvas);
+}
+
 // ---------- Wiring ----------
 
 // A popup's backdrop dims the page, but not the Windows title bar buttons drawn over it: tell main.js when one is
@@ -2854,6 +3255,10 @@ $('#skin-elytra').onclick = () => {
 $('#skin-play').onclick = () => setAnimation($('#skin-play').getAttribute('aria-pressed') !== 'true');
 $('#skins-cancel').onclick = () => $('#skins-dialog').close();
 $('#skins-save').onclick = saveSkinWindow;
+$('#schem-dialog').addEventListener('close', () => {
+  schemOpen.item = null;
+  schemOpen.view?.clear(); // stops building, and lets go of the blocks
+});
 $('#skins-dialog').addEventListener('close', () => {
   closeMenus();
   stopViewer();
@@ -3107,6 +3512,26 @@ $('#srv-command-form').onsubmit = async (event) => {
   }
 };
 
+$('#open-schematics').onclick = openSchematics;
+$('#schematics-folder').onclick = () => api.openSchematicsFolder();
+for (const button of document.querySelectorAll('#schem-kinds [data-kind]')) {
+  button.onclick = () => {
+    schem.kind = button.dataset.kind;
+    renderSchematics();
+  };
+}
+$('#schem-filter').oninput = () => {
+  schem.filter = $('#schem-filter').value;
+  renderSchematics();
+};
+$('#schem-delete').onclick = deleteSchematic;
+$('#schem-reveal').onclick = () => schemOpen.item && api.revealSchematic(schemOpen.item.path);
+$('#schem-done').onclick = () => $('#schem-dialog').close();
+// Back from the game (or a file browser) with new schematics: look again.
+window.addEventListener('focus', () => {
+  if (state.view === 'schematics' && !document.querySelector('dialog[open]')) loadSchematics();
+});
+
 (async () => {
   [appSettings, appInfo] = await Promise.all([api.getSettings(), api.getAppInfo()]);
   $('#app-version').textContent = `v${appInfo.version}`;
@@ -3119,4 +3544,5 @@ $('#srv-command-form').onsubmit = async (event) => {
   if (state.view === 'server') renderMain();
   update = await api.getUpdate();
   renderUpdate();
+  loadSchematics(); // the count in the sidebar
 })();

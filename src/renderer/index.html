@@ -28,10 +28,25 @@
     </div>
   </header>
 
+  <!-- Over the launcher while schematic files are dragged onto it: dropped, they go to the Schematics (app.js). -->
+  <div id="app-drop" class="app-drop" aria-hidden="true"><span>Drop to add to Schematics</span></div>
+
   <div class="app">
   <aside id="sidebar">
 
     <div class="side-scroll">
+      <!-- The Schematics view: everything Litematica, WorldEdit and Axiom saved, in 3D. -->
+      <ul class="side-list library-list">
+        <li id="schematics-row">
+          <span class="item-icon library-icon" aria-hidden="true">
+            <svg class="icon" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" rx="2"/><path d="M1.5 6h13M1.5 10h13M6 1.5v13M10 1.5v13"/></svg>
+          </span>
+          <button type="button" id="open-schematics" class="side-select">
+            <span class="name">Schematics</span>
+            <span id="schematics-count" class="sub">Litematica, WorldEdit, Axiom</span>
+          </button>
+        </li>
+      </ul>
       <section class="side-section" aria-labelledby="instances-heading">
         <h2 id="instances-heading">Instances</h2>
         <ul id="instance-list" class="side-list"></ul>
@@ -152,6 +167,31 @@
 
       <div class="tab tab-log" id="tab-log" hidden>
         <pre id="log" class="console"></pre>
+      </div>
+    </section>
+
+    <section id="schematics-view" class="view" hidden>
+      <header class="view-header">
+        <div class="heading">
+          <h1>Schematics</h1>
+          <p class="meta">Shared by every instance. Litematica, WorldEdit and Axiom save here.</p>
+        </div>
+        <div class="header-actions">
+          <button type="button" id="schematics-folder" class="quiet">Open folder</button>
+        </div>
+      </header>
+      <div class="schem-bar">
+        <div id="schem-kinds" class="kinds" role="group" aria-label="Show">
+          <button type="button" data-kind="all">All</button>
+          <button type="button" data-kind="litematica">Litematica</button>
+          <button type="button" data-kind="worldedit">WorldEdit</button>
+          <button type="button" data-kind="axiom">Axiom</button>
+        </div>
+        <input id="schem-filter" type="search" placeholder="Filter" spellcheck="false" autocomplete="off" aria-label="Filter schematics">
+      </div>
+      <p id="schem-note" class="hint schem-note" hidden></p>
+      <div class="tab-scroll schem-scroll">
+        <div id="schem-list"></div>
       </div>
     </section>
 
@@ -482,6 +522,29 @@
     </div>
   </dialog>
 
+  <!-- A schematic in 3D, big: drag to turn, right-drag to move, scroll to zoom (app.js, renderer/schematics.js).
+       The bar fills while it's being built. -->
+  <dialog id="schem-dialog" aria-label="Schematic">
+    <div class="dialog-body">
+      <div class="schem-head">
+        <h2 id="schem-name"></h2>
+        <p id="schem-meta" class="meta"></p>
+      </div>
+      <div class="schem-stage">
+        <canvas id="schem-canvas" aria-label="The schematic in 3D. Drag to turn it, right-drag to move it, scroll to zoom."></canvas>
+        <p id="schem-stage-text" class="schem-stage-text" role="status"></p>
+        <div id="schem-progress" class="schem-progress" role="progressbar" aria-label="Drawing" aria-valuemin="0" aria-valuemax="100" hidden><span></span></div>
+        <p class="schem-hint">Drag to turn · right-drag to move · scroll to zoom · double-click to start over</p>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="schem-delete" class="quiet danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" id="schem-reveal" class="quiet">Show in folder</button>
+        <button type="button" id="schem-done" class="primary" autofocus>Done</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="server-dialog">
     <form id="server-form" method="dialog" class="dialog-body">
       <h2>New server</h2>
@@ -611,6 +674,9 @@
   </dialog>
 
   <script src="vendor/skinview3d.js"></script>
+  <script src="vendor/deepslate.js"></script>
+  <script src="vendor/legacy-blocks.js"></script>
+  <script src="schematics.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

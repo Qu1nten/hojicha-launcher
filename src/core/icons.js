@@ -297,4 +297,4 @@ function fontSheet() {
   return png;
 }
 
-module.exports = { ensure, has, url, random, list, fontSheet };
+module.exports = { ensure, has, url, random, list, fontSheet, newestJar };

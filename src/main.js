@@ -20,6 +20,8 @@ const accounts = require('./core/accounts');
 const storage = require('./core/storage');
 const borderless = require('./core/borderless');
 const skins = require('./core/skins');
+const schematics = require('./core/schematics');
+const blocks = require('./core/blocks');
 const { autoUpdater } = require('electron-updater');
 
 const EULA_URL = 'https://aka.ms/MinecraftEULA';
@@ -346,6 +348,23 @@ function registerIpc() {
     }
     if (capeId !== undefined) await accounts.setCape(accountId, capeId);
     return accounts.summary();
+  });
+
+  // The Schematics view (core/schematics.js lists them; the page reads and draws them with core/blocks.js's block
+  // models). Deleting moves a file to the Recycle Bin, so it can be brought back.
+  handle('schematics:list', () => schematics.list());
+  handle('schematics:read', (file) => schematics.read(file));
+  handle('schematics:blocks', () => blocks.get());
+  handle('schematics:savePreview', (file, dataUrl, info) => schematics.savePreview(file, dataUrl, info));
+  handle('schematics:reveal', (file) => shell.showItemInFolder(schematics.check(file)));
+  handle('schematics:openFolder', () => {
+    fs.mkdirSync(paths.schematics, { recursive: true });
+    return shell.openPath(paths.schematics);
+  });
+  handle('schematics:import', (files) => schematics.importFiles(files));
+  handle('schematics:trash', async (file) => {
+    await shell.trashItem(schematics.check(file));
+    return schematics.list();
   });
   handle('accounts:loginStart', () => accounts.startMicrosoftLogin());
   handle('accounts:loginFinish', () => accounts.finishMicrosoftLogin());
