@@ -49,7 +49,8 @@
   --roast-deep: #1b120d; /* consoles, sunk-in surfaces */
   --kiln: #31231b;       /* sidebar, dialogs, inputs */
   --kiln-raised: #3b2b21;
-  --clay: #4a3528;       /* borders, dividers */
+  --clay: #4a3528;       /* dividers: quiet lines between things */
+  --edge: #8c6f5b;       /* the edge of a control (input, outlined button, switch): at least 3:1, so it can be found */
   --liquor: #d9944a;     /* the one strong colour: Play, focus, active tab */
   --liquor-bright: #e6a660;
   --leaf: #9cb26a;       /* state only: installed, synced, running */
@@ -85,28 +86,32 @@
 /* Matcha: the light theme. Every hojicha colour has a whisked-green counterpart with the same job, and the grain
    and the light over main are the same, only green. Text colours keep at least 4.5:1 on their surfaces. Picked
    with the switch in the title bar; theme.js applies it before the first paint. */
+/* Matcha keeps its green-tinted surfaces (the sidebar a clear step darker than the main area, as in hojicha), and
+   where hojicha is amber (Play, the active tab, the theme switch, focus) it's a true whisked-matcha green. The
+   warm light over main and the sidebar's shade are in that green too. */
 :root[data-theme="matcha"] {
   --roast: #eef0d8;
   --roast-deep: #e3e7c6;
   --kiln: #dae0b8;
   --kiln-raised: #ced5a6;
   --clay: #bcc391;
-  --liquor: #6c762c;
-  --liquor-bright: #899643;
-  --leaf: #899643;
+  --edge: #6f7b55;
+  --liquor: #4f7d26;
+  --liquor-bright: #44701f;  /* hover goes deeper, not lighter: white text has to stay readable on it */
+  --leaf: #5e8a2e;
   --steam: #252a12;
   --steam-dim: #575d3a;
   --ember: #a3352a;
   --on-liquor: #ffffff;
-  --liquor-text: #5b6425;
-  --liquor-text-bright: #4c5719;
-  --leaf-text: #4c5719;
+  --liquor-text: #3d661b;    /* the green as text: darker, to stay 4.5:1 on the sidebar and dialogs */
+  --liquor-text-bright: #335716;
+  --leaf-text: #3d661b;
   --clay-rgb: 188, 195, 145;
   --backdrop: rgba(37, 42, 18, 0.35);
-  --glow-1: rgba(137, 150, 67, 0.22);       /* the same light, in matcha green: on a pale ground it needs more */
-  --glow-2: rgba(108, 118, 44, 0.14);       /* colour to show as much as hojicha's, but text over its centre */
-  --glow-3: rgba(137, 150, 67, 0.16);       /* still keeps 4.5:1 */
-  --edge-shadow: rgba(30, 50, 4, 0.16); /* a green shade, not grey */
+  --glow-1: rgba(94, 138, 46, 0.22);        /* the same light, in matcha green: on a pale ground it needs more */
+  --glow-2: rgba(79, 125, 38, 0.14);        /* colour to show as much as hojicha's, but text over its centre */
+  --glow-3: rgba(94, 138, 46, 0.16);        /* still keeps 4.5:1 */
+  --edge-shadow: rgba(40, 70, 10, 0.18);    /* the sidebar's shade on main, in green rather than grey */
   --grain-opacity: 0.045;                   /* overlay grain shows most on mid-tones like the green Play button */
   color-scheme: light;
 }
@@ -144,14 +149,14 @@ button, input, select {
 button {
   cursor: pointer;
   background: transparent;
-  border: 1px solid var(--clay);
+  border: 1px solid var(--edge);
   border-radius: 8px;
   padding: 7px 14px;
   font-weight: 500;
   transition: background-color 120ms, border-color 120ms, color 120ms;
 }
 button:hover:not(:disabled) { border-color: var(--steam-dim); background: var(--kiln-raised); }
-button:disabled { opacity: 0.45; cursor: default; }
+button:disabled { opacity: 0.7; cursor: default; } /* still readable (3:1), but clearly not pressable */
 
 button.quiet { border-color: transparent; color: var(--steam-dim); }
 button.quiet:hover:not(:disabled) { color: var(--steam); background: var(--kiln); border-color: transparent; }
@@ -191,11 +196,11 @@ button.play:disabled { opacity: 1; background: var(--clay); color: var(--steam-d
 
 input, select {
   background: var(--roast);
-  border: 1px solid var(--clay);
+  border: 1px solid var(--edge);
   border-radius: 8px;
   padding: 7px 10px;
 }
-input::placeholder { color: var(--steam-dim); opacity: 0.7; }
+input::placeholder { color: var(--steam-dim); opacity: 1; } /* full secondary colour: fainter fails 4.5:1 */
 input:focus, select:focus { outline: none; border-color: var(--liquor); }
 
 :focus-visible { outline: 2px solid var(--liquor); outline-offset: 2px; }
@@ -281,7 +286,7 @@ input:focus-visible, select:focus-visible { outline: none; }
   grid-template-columns: 1fr 1fr;
   gap: 2px;
   padding: 2px;
-  border: 1px solid var(--clay);
+  border: 1px solid var(--edge);
   border-radius: 999px;
   -webkit-app-region: no-drag;
 }
@@ -318,7 +323,7 @@ input:focus-visible, select:focus-visible { outline: none; }
   max-width: 100%;
   padding: 3px 12px 3px 10px;
   border-radius: 999px;
-  border-color: var(--clay);
+  border-color: var(--edge);
   font-size: var(--text-s);
   font-weight: 500;
   color: var(--steam-dim);
@@ -728,7 +733,7 @@ button.play:not(:disabled) .play-fill { display: none; }
   text-align: right;
 }
 .mod-row .version-button { border-color: transparent; color: var(--steam-dim); }
-.mod-row .version-button:hover:not(:disabled), .mod-row .version-button:focus-visible { border-color: var(--clay); color: var(--steam); }
+.mod-row .version-button:hover:not(:disabled), .mod-row .version-button:focus-visible { border-color: var(--edge); color: var(--steam); }
 .mod-row .version { padding: 0 10px; }
 .mod-update { flex-shrink: 0; padding: 3px 10px; font-size: var(--text-s); color: var(--leaf-text); }
 /* Remove keeps its room, so nothing shifts when it shows on hover or keyboard focus. */
@@ -758,7 +763,7 @@ button.play:not(:disabled) .play-fill { display: none; }
   margin: 0;
   flex-shrink: 0;
   border-radius: 999px;
-  background: var(--clay);
+  background: var(--edge);
   position: relative;
   cursor: pointer;
   transition: background-color 150ms;
@@ -776,7 +781,7 @@ button.play:not(:disabled) .play-fill { display: none; }
 }
 .switch:checked { background: var(--leaf); }
 .switch:checked::after { transform: translateX(16px); background: var(--roast); }
-.switch:disabled { opacity: 0.45; cursor: default; }
+.switch:disabled { opacity: 0.7; cursor: default; }
 label.sync-row { display: contents; cursor: pointer; }
 
 /* ---------- Consoles ---------- */
@@ -792,7 +797,7 @@ label.sync-row { display: contents; cursor: pointer; }
   white-space: pre-wrap;
   word-break: break-all;
 }
-.console:empty::before { content: "Nothing here yet."; color: var(--clay); font-family: var(--font); }
+.console:empty::before { content: "Nothing here yet."; color: var(--steam-dim); font-family: var(--font); }
 
 /* ---------- Server view ---------- */
 
@@ -958,7 +963,7 @@ dialog::backdrop { background: var(--backdrop); }
   flex-direction: column;
   gap: 2px;
   padding: 10px 12px;
-  border: 1px solid var(--clay);
+  border: 1px solid var(--edge);
   border-radius: 10px;
   background: var(--roast);
   cursor: pointer;
@@ -985,7 +990,7 @@ dialog::backdrop { background: var(--backdrop); }
   gap: 14px;
   padding: 14px 16px;
   text-align: left;
-  border: 1px solid var(--clay);
+  border: 1px solid var(--edge);
   border-radius: 10px;
   background: var(--roast);
   transition: border-color 120ms;

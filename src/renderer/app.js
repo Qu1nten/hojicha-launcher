@@ -468,7 +468,7 @@ function renderMeta() {
 // fresh to deep green. Both start well apart from the empty cup (--clay), so the first few percent already show.
 const ROAST_STOPS = {
   hojicha: [[156, 178, 106], [217, 148, 74], [176, 100, 56]],
-  matcha: [[158, 182, 76], [137, 150, 67], [108, 118, 44]],
+  matcha: [[141, 178, 85], [94, 138, 46], [79, 125, 38]],
 };
 function roastColor(fraction) {
   const stops = ROAST_STOPS[document.documentElement.dataset.theme] || ROAST_STOPS.hojicha;
