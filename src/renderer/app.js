@@ -51,7 +51,7 @@ function current() {
 
 function isBusy(id) {
   const s = state.status[id]?.state;
-  return s === 'installing' || s === 'running';
+  return s === 'installing' || s === 'running' || s === 'busy'; // busy: mods are being installed or switched
 }
 
 // "Fabric 1.21.11" / "Vanilla 1.21.11"

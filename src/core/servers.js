@@ -2,11 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { spawn } = require('child_process');
+const AdmZip = require('adm-zip');
 const paths = require('./paths');
 const minecraft = require('./minecraft');
 const serverTypes = require('./serverTypes');
 const { folderName } = require('./instances');
-const { readJson, writeJson } = require('./util');
+const { readJson, readJsonOr, writeJson } = require('./util');
 
 // Local servers are server folders (Paper, Purpur, Fabric, vanilla...) the launcher can start: existing ones
 // that were added, or new ones created in the launcher's servers\ folder.
@@ -33,11 +34,7 @@ function setHooks(newHooks) {
 }
 
 function list() {
-  try {
-    return readJson(file());
-  } catch {
-    return [];
-  }
+  return readJsonOr(file(), []);
 }
 
 function saveAll(servers) {
@@ -63,8 +60,33 @@ function detect(dir) {
     // Not a Paper-family server, or it has never been started.
   }
   mcVersion ??= jar.match(/(\d+\.\d+(?:\.\d+)?)/)?.[1] || null;
+  // Plain names like server.jar: Mojang's server jars say their version in a version.json inside. Fabric's
+  // fabric-server-launch.jar runs the vanilla jar next to it (server.jar unless its properties file says otherwise).
+  if (!mcVersion) {
+    for (const candidate of [jar, fabricServerJar(dir), 'server.jar']) {
+      mcVersion = candidate && jarVersion(path.join(dir, candidate));
+      if (mcVersion) break;
+    }
+  }
   if (!mcVersion) throw new Error(`Could not tell which Minecraft version ${jar} is for`);
   return { jar, mcVersion };
+}
+
+function jarVersion(file) {
+  try {
+    const entry = new AdmZip(file).getEntry('version.json');
+    return entry ? JSON.parse(entry.getData().toString('utf8')).id || null : null;
+  } catch {
+    return null; // not there, or not a jar Mojang made
+  }
+}
+
+function fabricServerJar(dir) {
+  try {
+    return fs.readFileSync(path.join(dir, 'fabric-server-launcher.properties'), 'utf8').match(/^serverJar=(.+)$/m)?.[1].trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function add(dir) {
@@ -151,11 +173,7 @@ function writeProperties(dir, values, { create = false } = {}) {
 }
 
 function pendingRestores() {
-  try {
-    return readJson(restoreFile());
-  } catch {
-    return {};
-  }
+  return readJsonOr(restoreFile(), {});
 }
 
 function rememberOriginals(dir) {
@@ -320,10 +338,25 @@ function addToWhitelist(id, name) {
   return server;
 }
 
+// Takes the player off the server's own whitelist too: through the console while the server runs (it keeps the list
+// in memory and would write it back), otherwise straight from whitelist.json. Starting only ever adds names.
 function removeFromWhitelist(id, name) {
   const server = update(id, (s) => { s.whitelist = (s.whitelist || []).filter((n) => n !== name); });
-  if (server.public && processes.get(id)?.child) command(id, `whitelist remove ${name}`);
+  if (processes.get(id)?.child) command(id, `whitelist remove ${name}`);
+  else dropFromWhitelistFile(server.dir, name);
   return server;
+}
+
+function dropFromWhitelistFile(dir, name) {
+  const file = path.join(dir, 'whitelist.json');
+  let entries;
+  try {
+    entries = readJson(file);
+  } catch {
+    return; // no whitelist yet
+  }
+  const kept = entries.filter((e) => e.name?.toLowerCase() !== name.toLowerCase()); // names aren't case-sensitive
+  if (kept.length !== entries.length) writeJson(file, kept);
 }
 
 function command(id, text) {

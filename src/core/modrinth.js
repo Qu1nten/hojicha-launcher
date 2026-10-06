@@ -3,7 +3,7 @@ const path = require('path');
 const paths = require('./paths');
 const instances = require('./instances');
 const sync = require('./sync');
-const { readJson, writeJson } = require('./util');
+const { readJsonOr, writeJson } = require('./util');
 const { fetchJson, hashFile, downloadFile } = require('./http');
 
 const API = 'https://api.modrinth.com/v2';
@@ -19,12 +19,28 @@ const PACK_FOLDERS = [FOLDERS.resourcepack, FOLDERS.shader];
 const sharedFile = () => path.join(paths.synced, 'content.json');
 
 function readShared() {
-  try {
-    return readJson(sharedFile());
-  } catch {
-    return {};
-  }
+  return readJsonOr(sharedFile(), {});
 }
+
+// Changes to an instance's mods and packs run one at a time per instance. Each reads instance.json, may download
+// for a while, then writes its content back: two at once would each write back their own copy, losing the other's.
+const queues = new Map(); // instance id -> the newest queued task
+
+function exclusive(id, task) {
+  const run = (queues.get(id) || Promise.resolve()).catch(() => {}).then(task);
+  queues.set(id, run);
+  const done = () => {
+    if (queues.get(id) === run) queues.delete(id);
+  };
+  run.then(done, done);
+  return run;
+}
+
+// True while a mod or pack is being installed, switched or removed in the instance.
+const isWorking = (id) => queues.has(id);
+
+// Writes back only the content, onto instance.json as it is now (see instances.patch).
+const saveContent = (instance) => instances.patch(instance.id, { content: instance.content });
 
 const folderOf = (rel) => rel.split('/')[0];
 const isShared = (instance, folder) => PACK_FOLDERS.includes(folder) && sync.isSynced(instance, folder);
@@ -47,7 +63,7 @@ function settle(instance) {
       sharedChanged = true;
     }
   }
-  if (instanceChanged) instances.save(instance);
+  if (instanceChanged) saveContent(instance);
   if (sharedChanged) writeJson(sharedFile(), shared);
   return instance;
 }
@@ -97,7 +113,7 @@ function pruneMissing(instance) {
       changed = true;
     }
   }
-  if (changed) instances.save(instance);
+  if (changed) saveContent(instance);
   return instance;
 }
 
@@ -191,17 +207,19 @@ async function installVersion(instance, version, type, report, visited) {
 }
 
 // Installs a project (and, for mods, its required dependencies) into the instance.
-async function install(id, projectId, type = 'mod', report = () => {}) {
-  const instance = loadInstance(id);
-  if (type === 'mod' && instance.loader === 'vanilla') throw new Error('Vanilla instances cannot load mods. Create a Fabric instance.');
-  const version = await pickVersion(instance, projectId, type);
-  try {
-    await installVersion(instance, version, type, report, new Set());
-  } finally {
-    instances.save(instance); // keep track of whatever did get installed
-    settle(instance); // a pack in a shared folder keeps its details with the folder
-  }
-  return instance;
+function install(id, projectId, type = 'mod', report = () => {}) {
+  return exclusive(id, async () => {
+    const instance = loadInstance(id);
+    if (type === 'mod' && instance.loader === 'vanilla') throw new Error('Vanilla instances cannot load mods. Create a Fabric instance.');
+    const version = await pickVersion(instance, projectId, type);
+    try {
+      await installVersion(instance, version, type, report, new Set());
+    } finally {
+      saveContent(instance); // keep track of whatever did get installed
+      settle(instance); // a pack in a shared folder keeps its details with the folder
+    }
+    return instances.get(id);
+  });
 }
 
 // The Installed tab: every mod, resource pack and shader the instance has, with Modrinth info where we have it.
@@ -250,6 +268,10 @@ function isSharedContent(id, type) {
 // Switches a mod on or off the way Fabric expects: a switched-off mod is renamed to .jar.disabled, so the game
 // skips it but it stays in the list. Returns its new file name.
 function setModEnabled(id, file, enabled) {
+  return exclusive(id, () => toggleMod(id, file, enabled));
+}
+
+function toggleMod(id, file, enabled) {
   if (file.includes('/') || file.includes('\\')) throw new Error('Invalid file name');
   const instance = loadInstance(id);
   const modsDir = path.join(instances.gameDir(id), 'mods');
@@ -262,7 +284,7 @@ function setModEnabled(id, file, enabled) {
   if (meta) {
     delete instance.content[`mods/${file}`];
     instance.content[`mods/${target}`] = meta;
-    instances.save(instance);
+    saveContent(instance);
   }
   return target;
 }
@@ -311,36 +333,42 @@ async function listModVersions(id, file) {
 }
 
 // Swaps an installed mod for another of its versions (plus any required dependencies that version adds).
-async function setModVersion(id, file, versionId, report = () => {}) {
-  const instance = loadInstance(id);
-  const meta = modrinthMeta(instance, file);
-  const version = await fetchJson(`${API}/version/${encodeURIComponent(versionId)}`);
-  if (version.project_id !== meta.projectId) throw new Error('That version belongs to a different mod.');
-  try {
-    await installVersion(instance, version, 'mod', report, new Set());
-  } finally {
-    instances.save(instance);
-  }
-  // A switched-off mod stays off in its new version.
-  if (/\.disabled$/i.test(file)) {
-    const fresh = Object.keys(instance.content).find((rel) => rel.startsWith('mods/') && instance.content[rel].versionId === version.id);
-    if (fresh && !/\.disabled$/i.test(fresh)) setModEnabled(id, fresh.slice('mods/'.length), false);
-  }
-  return { title: meta.title, versionNumber: version.version_number };
+function setModVersion(id, file, versionId, report = () => {}) {
+  return exclusive(id, async () => {
+    const instance = loadInstance(id);
+    const meta = modrinthMeta(instance, file);
+    const version = await fetchJson(`${API}/version/${encodeURIComponent(versionId)}`);
+    if (version.project_id !== meta.projectId) throw new Error('That version belongs to a different mod.');
+    try {
+      await installVersion(instance, version, 'mod', report, new Set());
+    } finally {
+      saveContent(instance);
+    }
+    // A switched-off mod stays off in its new version.
+    if (/\.disabled$/i.test(file)) {
+      const fresh = Object.keys(instance.content).find((rel) => rel.startsWith('mods/') && instance.content[rel].versionId === version.id);
+      if (fresh && !/\.disabled$/i.test(fresh)) toggleMod(id, fresh.slice('mods/'.length), false);
+    }
+    return { title: meta.title, versionNumber: version.version_number };
+  });
 }
 
 // Removes a mod, resource pack or shader. A pack in a shared folder goes for every instance that shares it.
 function removeContent(id, type, file) {
+  return exclusive(id, () => removeNow(id, type, file));
+}
+
+function removeNow(id, type, file) {
   if (!FOLDERS[type]) throw new Error(`Unknown content type ${type}`);
   if (!file || file.includes('/') || file.includes('\\') || file === '.' || file === '..') throw new Error('Invalid file name');
   const instance = loadInstance(id);
   const rel = `${FOLDERS[type]}/${file}`;
   fs.rmSync(path.join(instances.gameDir(id), rel), { force: true, recursive: true, maxRetries: 3 });
   forgetRecord(instance, rel);
-  instances.save(instance);
+  saveContent(instance);
 }
 
 module.exports = {
-  FOLDERS, settleAll, search, searchModpacks, install, listContent, isSharedContent, setModEnabled, checkModUpdates,
+  FOLDERS, exclusive, isWorking, settleAll, search, searchModpacks, install, listContent, isSharedContent, setModEnabled, checkModUpdates,
   removeContent, listModVersions, setModVersion,
 };

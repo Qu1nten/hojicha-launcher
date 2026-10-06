@@ -24,11 +24,25 @@ function save(instance) {
   return instance;
 }
 
+// Saves just these fields onto the instance as it is on disk now, so a long task (a download) can't undo changes
+// made meanwhile, like a rename or the play time of a game that closed.
+function patch(id, fields) {
+  return save({ ...get(id), ...fields });
+}
+
 function list() {
   if (!fs.existsSync(paths.instances)) return [];
   return fs.readdirSync(paths.instances)
     .filter((id) => fs.existsSync(path.join(dir(id), 'instance.json')))
-    .map(get)
+    .flatMap((id) => {
+      try {
+        return [get(id)];
+      } catch (err) {
+        // One damaged instance.json mustn't hide the others (or stop the launcher starting): skip it.
+        console.error(`Skipping instance ${id}:`, err.message);
+        return [];
+      }
+    })
     .sort((a, b) => a.created - b.created);
 }
 
@@ -63,4 +77,4 @@ function create({ name, gameVersion, loader, loaderVersion }) {
   return save(instance);
 }
 
-module.exports = { dir, gameDir, get, save, list, create, folderName };
+module.exports = { dir, gameDir, get, save, patch, list, create, folderName };

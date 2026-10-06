@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const paths = require('./paths');
 const auth = require('./auth');
-const { readJson, writeJson } = require('./util');
+const { readJsonOr, writeJson } = require('./util');
 
 // Accounts are stored in config/accounts.json. Tokens are encrypted with the OS keystore (Windows DPAPI via
 // Electron safeStorage) when available. Offline accounts can only be added and used while a Microsoft account
@@ -17,11 +17,7 @@ function setCipher(newCipher) {
 const file = () => paths.accountsFile;
 
 function load() {
-  try {
-    return readJson(file());
-  } catch {
-    return { selected: null, accounts: [] };
-  }
+  return readJsonOr(file(), { selected: null, accounts: [] });
 }
 
 function save(store) {

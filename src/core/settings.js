@@ -1,17 +1,13 @@
 const paths = require('./paths');
-const { readJson, writeJson } = require('./util');
+const { readJsonOr, writeJson } = require('./util');
 
 // Player names come from accounts.js; settings only hold launcher preferences.
 const THEMES = ['hojicha', 'matcha']; // dark and light, see the switch in the title bar
 const DEFAULTS = { memoryMb: 4096, javaPath: '', theme: 'hojicha' };
 
 function get() {
-  try {
-    const { memoryMb, javaPath, theme } = { ...DEFAULTS, ...readJson(paths.settingsFile) };
-    return { memoryMb, javaPath, theme: THEMES.includes(theme) ? theme : DEFAULTS.theme };
-  } catch {
-    return { ...DEFAULTS };
-  }
+  const { memoryMb, javaPath, theme } = { ...DEFAULTS, ...readJsonOr(paths.settingsFile, {}) };
+  return { memoryMb, javaPath, theme: THEMES.includes(theme) ? theme : DEFAULTS.theme };
 }
 
 function save(patch) {

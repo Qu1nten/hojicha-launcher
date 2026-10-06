@@ -104,22 +104,39 @@ const setOnline = (id, value) => {
   send('server-online', { id, ...(value || { state: 'off' }) });
 };
 
+// The newest goOnline per server: after a restart, an older one still connecting must leave the new one alone.
+const onlineAttempts = new Map();
+
 async function goOnline(id) {
   if (!servers.get(id).public) return;
+  const attempt = {};
+  onlineAttempts.set(id, attempt);
+  const superseded = () => onlineAttempts.get(id) !== attempt;
+  // The server stopped (or never got going) while connecting. goOffline may have run before the agent was up, so
+  // stop it here too, or it would keep relaying to nothing until the launcher closes.
+  const gone = () => !servers.isRunning(id);
   setOnline(id, { state: 'connecting', text: 'Connecting to playit.gg…' });
   try {
     await playit.startAgent(id, (line) => send('server-log', { id, line }));
+    if (superseded()) return;
+    if (gone()) throw new Error('Server stopped');
     const port = servers.port(id);
     const address = await playit.ensureTunnel(port, (err) => {
       send('server-log', { id, line: `[playit] Creating the tunnel failed: ${err.endpoint} answered ${err.reply}` });
       setOnline(id, { state: 'manual', port });
-    });
-    if (!servers.isRunning(id)) return; // stopped while connecting; goOffline already cleaned up
+    }, () => superseded() || gone());
+    if (superseded()) return;
+    if (gone()) throw new Error('Server stopped');
     setOnline(id, { state: 'online', address });
   } catch (err) {
-    if (err.endpoint) send('server-log', { id, line: `[playit] ${err.endpoint} answered ${err.reply}` });
-    if (!servers.isRunning(id)) return;
+    if (superseded()) return;
+    onlineAttempts.delete(id);
     playit.stopAgent(id);
+    if (gone()) {
+      if (online.has(id)) setOnline(id, null);
+      return;
+    }
+    if (err.endpoint) send('server-log', { id, line: `[playit] ${err.endpoint} answered ${err.reply}` });
     setOnline(id, { state: 'error', text: err.message });
   }
 }
@@ -131,7 +148,17 @@ function goOffline(id) {
 
 function assertIdle(id) {
   if (running.has(id)) throw new Error('Close the game first');
+  if (modrinth.isWorking(id)) throw new Error('Wait until the mods have finished downloading');
 }
+
+// Installing, switching or removing mods reports its steps as 'busy' (Play waits meanwhile). A game that's starting or
+// running keeps its own status instead: it says more, and the game isn't touched by the change until its next start.
+const modStatus = (id) => (text) => {
+  if (!running.has(id)) status(id, 'busy', text);
+};
+const modWorkDone = (id) => {
+  if (!running.has(id) && !modrinth.isWorking(id)) status(id, 'idle'); // not while more installs wait their turn
+};
 
 // options.join = "host:port" to connect to a server as soon as the game starts.
 async function launch(id, options = {}) {
@@ -283,6 +310,9 @@ function registerIpc() {
   handle('instances:openFolder', (id) => shell.openPath(instances.gameDir(id)));
   handle('instances:setSync', (id, item, enabled) => {
     assertIdle(id);
+    // Switching off copies the shared files, and a running game holds some of them (an open world's session.lock).
+    const users = enabled || !sync.FOLDERS.includes(item) ? [] : [...running.keys()].filter((other) => sync.isSynced(instances.get(other), item));
+    if (users.length) throw new Error(`Close ${instances.get(users[0]).name} first: it's using the shared ${item}.`);
     return sync.setSync(id, item, enabled);
   });
   handle('instances:launch', launch);
@@ -305,17 +335,17 @@ function registerIpc() {
   handle('mods:setVersion', async (id, file, versionId) => {
     if (running.has(id)) throw new Error('Close the game first: Windows keeps mod files locked while it runs.');
     try {
-      return await modrinth.setModVersion(id, file, versionId, (text) => status(id, 'busy', text));
+      return await modrinth.setModVersion(id, file, versionId, modStatus(id));
     } finally {
-      status(id, running.has(id) ? 'running' : 'idle', running.has(id) ? 'Playing' : '');
+      modWorkDone(id);
     }
   });
   handle('modrinth:search', (id, query, type, offset) => modrinth.search(id, query, type, offset));
   handle('modrinth:install', async (id, projectId, type) => {
     try {
-      return await modrinth.install(id, projectId, type, (text) => status(id, 'busy', text));
+      return await modrinth.install(id, projectId, type, modStatus(id));
     } finally {
-      status(id, running.has(id) ? 'running' : 'idle', running.has(id) ? 'Running' : '');
+      modWorkDone(id);
     }
   });
   // Modpacks make a new instance. It's returned straight away; its files download in the background, reported
@@ -327,7 +357,7 @@ function registerIpc() {
     (async () => {
       let result = ['idle', 'Modpack installed'];
       try {
-        await modpacks.fillInstance(pack, (text, progress = null) => status(id, 'installing', text, progress));
+        await modrinth.exclusive(id, () => modpacks.fillInstance(pack, (text, progress = null) => status(id, 'installing', text, progress)));
         sync.linkFolders(instances.get(id));
       } catch (err) {
         result = ['error', `The modpack didn't finish installing (${err.message}). Delete this instance and try again.`];

@@ -49,6 +49,8 @@ function linkFolder(gameDir, name) {
     // Move what the instance already had into the shared folder (without overwriting) before linking.
     if (KEEP_BOTH.includes(name)) {
       for (const entry of fs.readdirSync(local)) {
+        // An identical world is already shared (e.g. the copy made when sync was switched off): don't duplicate it.
+        if (sameTree(path.join(local, entry), path.join(shared, entry))) continue;
         fs.cpSync(path.join(local, entry), freeName(shared, entry), { recursive: true });
       }
     } else {
@@ -82,11 +84,48 @@ function freeName(dir, entry) {
   return target;
 }
 
+// True if a and b hold the same files with the same contents (b may not exist).
+function sameTree(a, b) {
+  let sa, sb;
+  try {
+    sa = fs.statSync(a);
+    sb = fs.statSync(b);
+  } catch {
+    return false;
+  }
+  if (sa.isDirectory() !== sb.isDirectory()) return false;
+  if (!sa.isDirectory()) return sa.size === sb.size && fs.readFileSync(a).equals(fs.readFileSync(b));
+  const entries = fs.readdirSync(a).sort();
+  const others = fs.readdirSync(b).sort();
+  if (entries.length !== others.length || entries.some((e, i) => e !== others[i])) return false;
+  return entries.every((e) => sameTree(path.join(a, e), path.join(b, e)));
+}
+
 function unlinkFolder(gameDir, name, keepCopy) {
   const local = path.join(gameDir, name);
   if (!isLink(local)) return;
-  fs.unlinkSync(local); // removes only the junction, never the shared contents
-  if (keepCopy) fs.cpSync(path.join(paths.synced, name), local, { recursive: true });
+  if (!keepCopy) {
+    fs.unlinkSync(local); // removes only the junction, never the shared contents
+    return;
+  }
+  // Copy next to it first and swap the copy in only once it's complete. A copy that fails halfway (a file an open
+  // game holds) would otherwise leave half the worlds here, which come back as "(2)" copies when sync is turned on.
+  const copy = `${local}.copying`;
+  fs.rmSync(copy, { recursive: true, force: true, maxRetries: 5 });
+  try {
+    fs.cpSync(path.join(paths.synced, name), copy, { recursive: true });
+  } catch (err) {
+    fs.rmSync(copy, { recursive: true, force: true, maxRetries: 5 });
+    throw new Error(`Couldn't copy the shared ${name} (${err.message}). If a game is using them, close it and try again.`);
+  }
+  fs.unlinkSync(local);
+  try {
+    fs.renameSync(copy, local);
+  } catch (err) {
+    fs.symlinkSync(path.join(paths.synced, name), local, 'junction'); // stay synced rather than without the folder
+    fs.rmSync(copy, { recursive: true, force: true, maxRetries: 5 });
+    throw err;
+  }
 }
 
 function seedFile(local, shared) {

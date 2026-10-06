@@ -86,8 +86,10 @@ async function makeInstance(zip, name, modpack) {
     loader: 'fabric',
     loaderVersion: index.dependencies['fabric-loader'] || await minecraft.latestFabricLoader(index.dependencies.minecraft),
   });
-  // The pack ships its own mod settings: keep them out of the shared config folder.
+  // The pack ships its own mod settings: keep them out of the shared config folder. The same for its options.txt
+  // (keybinds, which resource packs are on) if it has one, which the shared one would replace at the first launch.
   instance.sync = { config: false };
+  if (['overrides/options.txt', 'client-overrides/options.txt'].some((name) => zip.getEntry(name))) instance.sync['options.txt'] = false;
   instance.modpack = modpack;
   instances.save(instance);
   return { instance, zip, index };
@@ -178,7 +180,7 @@ async function trackContent(instance, files) {
         iconUrl: project?.icon_url || null,
       };
     }
-    instances.save(instance);
+    instances.patch(instance.id, { content: instance.content }); // a rename meanwhile stays
   } catch (err) {
     console.error('Could not look up the modpack files on Modrinth:', err.message);
   }

@@ -171,11 +171,13 @@ const field = (tunnel, name) => tunnel.agent_config?.fields?.find((f) => f.name 
 // The public address of the Minecraft tunnel to 127.0.0.1:<port>, creating the tunnel the first time.
 // If playit refuses to create it, onManual(err) is called once and this keeps waiting for the player to add the
 // tunnel on playit.gg themselves (the agent is running meanwhile, so the website can see it).
-async function ensureTunnel(port, onManual = () => {}) {
+// isCancelled stops the waiting, e.g. once the server has stopped.
+async function ensureTunnel(port, onManual = () => {}, isCancelled = () => false) {
   const key = secret();
   const giveUp = Date.now() + TUNNEL_TIMEOUT_MS;
   let created = false;
   for (;;) {
+    if (isCancelled()) throw new Error('Cancelled');
     const run = await call('/v1/agents/rundata', {}, key);
     const matches = (t) => t.tunnel_type === 'minecraft-java' && Number(field(t, 'local_port') || 25565) === port;
     const tunnel = run.tunnels.find(matches);
