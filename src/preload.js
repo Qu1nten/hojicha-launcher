@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
 
 contextBridge.exposeInMainWorld('launcher', {
+  platform: process.platform,
   getSettings: () => invoke('settings:get'),
   saveSettings: (patch) => invoke('settings:save', patch),
   setPopupOpen: (open) => invoke('window:popup', open),

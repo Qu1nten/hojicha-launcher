@@ -1,6 +1,12 @@
 const api = window.launcher;
 const $ = (selector) => document.querySelector(selector);
 
+// macOS runs from source only (see the README): its window buttons sit where the logo is, and the playit.gg
+// agent the launcher downloads is a Windows program, so online play is Windows-only.
+const IS_MAC = api.platform === 'darwin';
+const ONLINE_PLAY = api.platform === 'win32';
+document.body.classList.toggle('mac', IS_MAC);
+
 const SYNC_ITEMS = [
   ['saves', 'Worlds', 'Every world shows up in every instance. Opening one in a newer version upgrades it.'],
   ['config', 'Mod settings', 'One shared config folder, so mod settings carry over.'],
@@ -1181,7 +1187,7 @@ function renderOnline() {
     ? 'Online play is on: friends on the whitelist can join with Microsoft accounts. Your server.properties settings are put back when it stops. The selected account is made operator.'
     : 'The server only accepts players on this PC. Your server.properties settings are put back when it stops, so your own start script keeps working. The selected account is made operator.';
 
-  $('#playit-link').hidden = playitState.linked;
+  $('#playit-link').hidden = playitState.linked || !ONLINE_PLAY;
   $('#playit-link').disabled = linking;
   $('#playit-link').textContent = linking ? 'Waiting for you in the browser…' : 'Set up online play';
   $('#playit-cancel').hidden = !linking;
@@ -1193,7 +1199,8 @@ function renderOnline() {
 
   const account = selectedAccount();
   let hint;
-  if (!playitState.linked) hint = linking
+  if (!ONLINE_PLAY) hint = 'Online play through playit.gg only works on Windows for now, so only this computer can join.';
+  else if (!playitState.linked) hint = linking
     ? 'Sign in on playit.gg (a free account is fine) and approve Hojicha Launcher. This only happens once.'
     : 'Let friends join over the internet through playit.gg, without port forwarding.';
   else if (!server.public) hint = 'Off: only this PC can join.';

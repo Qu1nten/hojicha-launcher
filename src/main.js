@@ -644,6 +644,8 @@ function createWindow() {
     // over it, tinted to the palette, so Snap Layouts and the usual hover behaviour keep working.
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: colors.background, symbolColor: colors.symbols, height: TITLEBAR_HEIGHT },
+    // macOS draws its window buttons top left instead; centred in the title bar, where the logo would be.
+    trafficLightPosition: { x: 20, y: Math.round((TITLEBAR_HEIGHT - 14) / 2) },
     webPreferences: { preload: path.join(__dirname, 'preload.js'), zoomFactor: ZOOM },
   });
   win.removeMenu();
