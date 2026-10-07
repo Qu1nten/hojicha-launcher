@@ -20,7 +20,7 @@
 - **Syncing** — share worlds, settings and packs between instances
 - **Servers** — run a Paper, Purpur or Fabric server; friends join over the internet via [playit.gg](https://playit.gg) without port forwarding
 - **Skins and capes** — change your skin and cape with a 3D preview; saved skins carry across accounts
-- **Schematics** — view Litematica, WorldEdit and Axiom files (.litematic, .schem, .schematic, .bp) in 3D, grouped and sorted
+- **Schematics** — view Litematica, WorldEdit and Axiom files (.litematic, .schem, .schematic, .bp) in 3D and organise them in folders
 - **Two themes** — dark **Hojicha** and light **Matcha**
 - **Sign-in on Microsoft's website** — Hojicha never sees your password; tokens are stored encrypted on your PC
 
