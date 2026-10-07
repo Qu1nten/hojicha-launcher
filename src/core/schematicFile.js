@@ -570,7 +570,7 @@ async function read(file, kind, onProgress, cells = MAX_CELLS) {
   return kind === 'litematica' ? readLitematic(src) : readSponge(src);
 }
 
-module.exports = { read, readRoot, Source, readLegacy, parseState };
+module.exports = { read, Source };
 
 if (parentPort && workerData) {
   read(workerData.file, workerData.kind, (fraction) => parentPort.postMessage({ progress: fraction }), workerData.cells)

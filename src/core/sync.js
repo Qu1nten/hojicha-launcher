@@ -296,6 +296,6 @@ function linkFolders(instance) {
 }
 
 module.exports = {
-  FOLDERS, SCHEMATICS, SCHEMATIC_FOLDERS, isSynced, isLink, setSync, beforeLaunch, afterExit, deleteInstance, relinkAll,
+  FOLDERS, SCHEMATICS, isSynced, isLink, setSync, beforeLaunch, afterExit, deleteInstance, relinkAll,
   linkFolders, ownSchematicFolders,
 };
