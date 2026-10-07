@@ -2,7 +2,35 @@
 // drawn in 3D by deepslate (vendor/deepslate.js) with the game's own block models and textures, which main.js unpacks
 // from a downloaded game (core/blocks.js).
 (() => {
-  const { BlockState, Structure, StructureRenderer, BlockDefinition, BlockModel, TextureAtlas, Mesh, SpecialRenderers } = globalThis.deepslate;
+  const {
+    BlockState, Structure, StructureRenderer, BlockDefinition, BlockModel, TextureAtlas, Mesh, Quad, Vertex, SpecialRenderers,
+  } = globalThis.deepslate;
+
+  // A build has thousands of the same block, and deepslate makes each one's faces from its model from scratch. They
+  // come out the same every time for the same block state with the same sides hidden, so each is made once and the
+  // rest are copies: new corners (what's done to a block's faces afterwards moves and recolours its corners, which a
+  // copy mustn't share) around the same positions, colours and texture places. Kept by the state's properties (the
+  // same object for every block of that state), so they go when the schematic does.
+  // (with the name too: states without properties may share one empty object).
+  const meshCache = new WeakMap(); // properties -> Map("name|sides hidden" -> Mesh)
+  const makeMesh = BlockDefinition.prototype.getMesh;
+  const copyVertex = (v) => new Vertex(v.pos, v.color, v.texture, v.textureLimit, v.normal, v.blockPos);
+  const copyOf = (mesh) => new Mesh(mesh.quads.map((q) => new Quad(copyVertex(q.v1), copyVertex(q.v2), copyVertex(q.v3), copyVertex(q.v4))));
+  // The mesh made by make() for a block state (its properties and name) with the sides in cull hidden, made once.
+  function cachedMesh(props, name, cull, make) {
+    const hidden = (cull.up ? 1 : 0) | (cull.down ? 2 : 0) | (cull.north ? 4 : 0) | (cull.south ? 8 : 0)
+      | (cull.east ? 16 : 0) | (cull.west ? 32 : 0);
+    let made = meshCache.get(props);
+    if (!made) meshCache.set(props, (made = new Map()));
+    const key = `${name}|${hidden}`;
+    let mesh = made.get(key);
+    if (!mesh) made.set(key, (mesh = make()));
+    return mesh;
+  }
+  BlockDefinition.prototype.getMesh = function getMesh(name, props, uvs, models, cull) {
+    if (!props || typeof props !== 'object') return makeMesh.call(this, name, props, uvs, models, cull);
+    return copyOf(cachedMesh(props, String(name), cull, () => makeMesh.call(this, name, props, uvs, models, cull)));
+  };
 
   // deepslate merges each block's faces into its chunk by copying the chunk's whole list every time, which makes big
   // schematics take minutes; adding them to the end does the same in a moment.
@@ -104,10 +132,15 @@
   // deepslate draws blocks the game used to draw in code (chests, beds, signs...) with code of its own. Newer game
   // versions give some of them real models (beds, since 26.1), whose old textures are gone: those draw from their
   // model alone, or they'd get a second, missing-texture copy.
+  // Water and the rest of what's drawn in code without block data come out the same each time too, so they're made
+  // once like models are (see getMesh above); signs, banners and the like depend on their data, and are made each time.
   const drawSpecial = SpecialRenderers.getBlockMesh;
-  SpecialRenderers.getBlockMesh = (state, nbt, resources, cull) => (resources.hasShape?.(state.getName().toString())
-    ? new Mesh()
-    : drawSpecial.call(SpecialRenderers, state, nbt, resources, cull));
+  SpecialRenderers.getBlockMesh = (state, nbt, resources, cull) => {
+    const name = state.getName().toString();
+    if (resources.hasShape?.(name)) return new Mesh();
+    if (nbt) return drawSpecial.call(SpecialRenderers, state, nbt, resources, cull);
+    return copyOf(cachedMesh(state.getProperties(), `special|${name}`, cull, () => drawSpecial.call(SpecialRenderers, state, nbt, resources, cull)));
+  };
 
   const fullName = (name) => (name.includes(':') ? name : `minecraft:${name}`);
 
@@ -176,10 +209,10 @@
   // that can't be seen. Bigger ones are drawn whole.
   const MAX_MAPPED = 64 * 1024 * 1024;
 
-  // The model as a deepslate structure, its blocks under the names the loaded game knows them by. Blocks closed in
-  // on all six sides by solid full blocks can never be seen, so they're left out: a solid build is drawn as its
-  // surface, which is what makes big ones possible. deepslate still finds them as neighbours (getBlock), so the
-  // faces against them stay hidden.
+  // The model as a deepslate structure, its blocks under the names the loaded game knows them by. A block whose every
+  // side is hidden by the block beside it (solid blocks all round, or water in water, glass in a glass wall) can never
+  // be seen, so it's left out: a solid build or a sea is drawn as its surface, which is what makes big ones possible.
+  // deepslate still finds them as neighbours (getBlock), so the sides against them stay hidden.
   function structureOf(model, resources) {
     const states = model.palette.map((s) => new BlockState(resources.nameOf(s.name), s.props));
     const size = model.size.map((n) => Math.max(1, n));
@@ -189,21 +222,36 @@
       grid = new Uint16Array(w * h * d);
       for (let i = 0; i < model.count; i++) grid[(model.y[i] * d + model.z[i]) * w + model.x[i]] = model.state[i] + 1;
     }
-    const opaque = states.map((state) => Boolean(resources.getBlockFlags(state.getName())?.opaque));
+    const names = states.map((state) => state.getName().toString());
+    const flags = states.map((state) => resources.getBlockFlags(state.getName()) || {});
+    const wet = states.map((state) => state.isWaterlogged());
+    const cellAt = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= w || y >= h || z >= d ? 0 : grid[(y * d + z) * w + x]);
     const solid = (x, y, z) => {
-      if (x < 0 || y < 0 || z < 0 || x >= w || y >= h || z >= d) return false;
-      const cell = grid[(y * d + z) * w + x];
-      return cell > 0 && opaque[cell - 1];
+      const cell = cellAt(x, y, z);
+      return cell > 0 && Boolean(flags[cell - 1].opaque);
+    };
+    // Whether the side of a block (palette index self, at x, y, z) facing dir is hidden by the block beside it, as
+    // deepslate's needsCull decides: the same block of a kind that hides its own sides (glass, water); a solid one,
+    // except over a waterlogged block's top; or water against water. Straight from the grid.
+    const hiddenSide = (self, x, y, z, dir) => {
+      const [dx, dy, dz] = SIDES[dir];
+      const cell = cellAt(x + dx, y + dy, z + dz);
+      if (!cell) return false;
+      const other = cell - 1;
+      if (names[other] === names[self] && flags[other].self_culling) return true;
+      if (flags[other].opaque) return !(dir === 'up' && wet[self]);
+      return wet[self] && wet[other];
     };
     const blocks = [];
     for (let i = 0; i < model.count; i++) {
       const x = model.x[i];
       const y = model.y[i];
       const z = model.z[i];
-      if (grid && solid(x - 1, y, z) && solid(x + 1, y, z) && solid(x, y - 1, z) && solid(x, y + 1, z)
-        && solid(x, y, z - 1) && solid(x, y, z + 1)) continue;
+      const self = model.state[i];
+      if (grid && hiddenSide(self, x, y, z, 'up') && hiddenSide(self, x, y, z, 'down') && hiddenSide(self, x, y, z, 'north')
+        && hiddenSide(self, x, y, z, 'south') && hiddenSide(self, x, y, z, 'east') && hiddenSide(self, x, y, z, 'west')) continue;
       const pos = [x, y, z];
-      blocks.push({ pos, state: model.state[i], nbt: model.entities.get(`${x},${y},${z}`) });
+      blocks.push({ pos, state: self, nbt: model.entities.get(`${x},${y},${z}`) });
     }
     const structure = new Structure(size, states, blocks);
     if (grid) {
@@ -214,14 +262,75 @@
         const cell = grid[(pos[1] * d + pos[2]) * w + pos[0]];
         return cell ? { pos, state: states[cell - 1] } : null;
       };
+      structure.isSolid = solid; // for shadeCorners: much quicker than getBlock
+      // For deepslate's needsCull: rather than through a block object for every side of every block.
+      const index = new Map(states.map((state, i) => [state, i]));
+      structure.cullAgainst = (block, dir) => {
+        const self = index.get(block.state);
+        return self === undefined ? null : hiddenSide(self, block.pos[0], block.pos[1], block.pos[2], dir); // null: deepslate decides
+      };
     }
     return structure;
   }
 
+  const SIDES = { up: [0, 1, 0], down: [0, -1, 0], north: [0, 0, -1], south: [0, 0, 1], east: [1, 0, 0], west: [-1, 0, 0] };
+
   // ---------- The game's blocks ----------
 
+  // How many smaller copies (mipmaps) of the atlas there are, each half the size of the one before, for drawing blocks
+  // far away without them turning to noise. Every texture sits on a grid of 2^MIP_LEVELS pixels, so down to the
+  // last one each texture's copy is made from its own pixels only, with none of its neighbours' colours.
+  const MIP_LEVELS = 4;
+  const GRID = 2 ** MIP_LEVELS;
+
+  // The texture in box ([x, y, w, h], in pixels of level, a size x size RGBA array) at half the size, into next (an
+  // array for size / 2). Colours are averaged by how see-through they are, so holes don't darken the edges around
+  // them. Textures with holes (cutout: every pixel solid or empty) keep the share of solid pixels they had at
+  // first (coverage), or leaves and grass would thin out to nothing far away.
+  function halve(level, size, next, [x0, y0, w, h], coverage) {
+    const half = size / 2;
+    const nw = Math.max(1, Math.ceil(w / 2));
+    const nh = Math.max(1, Math.ceil(h / 2));
+    const nx = x0 / 2;
+    const ny = y0 / 2;
+    const alphas = [];
+    for (let y = 0; y < nh; y++) {
+      for (let x = 0; x < nw; x++) {
+        let r = 0; let g = 0; let b = 0; let a = 0; let n = 0;
+        for (let dy = 0; dy < 2; dy++) {
+          for (let dx = 0; dx < 2; dx++) {
+            const sx = Math.min(w - 1, 2 * x + dx);
+            const sy = Math.min(h - 1, 2 * y + dy);
+            const i = ((y0 + sy) * size + x0 + sx) * 4;
+            const alpha = level[i + 3];
+            r += level[i] * alpha; g += level[i + 1] * alpha; b += level[i + 2] * alpha; a += alpha; n++;
+          }
+        }
+        const o = ((ny + y) * half + nx + x) * 4;
+        if (a > 0) {
+          next[o] = r / a; next[o + 1] = g / a; next[o + 2] = b / a;
+        }
+        next[o + 3] = a / n;
+        alphas.push(next[o + 3]); // as stored (a whole number), to compare with the cutoff below
+      }
+    }
+    if (coverage === undefined) return [nx, ny, nw, nh];
+    // The cutoff that leaves as many solid pixels as the texture had, everything above it solid, the rest empty.
+    const sorted = alphas.slice().sort((p, q) => q - p);
+    const keep = Math.round(coverage * sorted.length);
+    const cutoff = keep > 0 ? Math.max(1, sorted[keep - 1]) : 256;
+    for (let y = 0; y < nh; y++) {
+      for (let x = 0; x < nw; x++) {
+        const o = ((ny + y) * half + nx + x) * 4 + 3;
+        next[o] = next[o] >= cutoff ? 255 : 0;
+      }
+    }
+    return [nx, ny, nw, nh];
+  }
+
   // A texture atlas of every texture, packed in rows (most are 16x16; chests, beds and signs use bigger ones), with
-  // the missing-texture checkerboard at the corner, where deepslate looks for textures it doesn't know.
+  // the missing-texture checkerboard at the corner, where deepslate looks for textures it doesn't know. With it, its
+  // mipmaps (levels 1 to MIP_LEVELS: { size, data }).
   async function packAtlas(textures) {
     const images = await Promise.all(Object.entries(textures).map(async ([id, base64]) => {
       try {
@@ -234,6 +343,7 @@
       }
     }));
     const list = [{ id: null, w: 16, h: 16 }, ...images.filter(Boolean).sort((a, b) => b.h - a.h || b.w - a.w)];
+    const onGrid = (n) => Math.ceil(n / GRID) * GRID;
     let size = 512;
     let spots;
     for (; size <= 8192; size *= 2) {
@@ -242,14 +352,14 @@
       let y = 0;
       let row = 0;
       for (const item of list) {
-        if (x + item.w > size) {
+        if (x + onGrid(item.w) > size) {
           x = 0;
           y += row;
           row = 0;
         }
         spots.push([x, y]);
-        x += item.w;
-        row = Math.max(row, item.h);
+        x += onGrid(item.w);
+        row = Math.max(row, onGrid(item.h));
       }
       if (y + row <= size) break;
     }
@@ -269,13 +379,37 @@
       uv[`minecraft:${item.id}`] = [x / size, y / size, (x + item.w) / size, (y + item.h) / size];
     });
     const pixels = ctx.getImageData(0, 0, size, size);
-    return { atlas: new TextureAtlas(pixels, uv), pixels, uv, size };
+
+    // Each texture made smaller level by level, from the level before.
+    const boxes = list.map((item, i) => [...spots[i], item.w, item.h]);
+    const coverages = boxes.map(([x0, y0, w, h]) => {
+      let solid = 0;
+      for (let y = y0; y < y0 + h; y++) {
+        for (let x = x0; x < x0 + w; x++) {
+          const a = pixels.data[(y * size + x) * 4 + 3];
+          if (a > 0 && a < 255) return undefined; // partly see-through: averaged as it is
+          if (a === 255) solid++;
+        }
+      }
+      return solid === w * h ? undefined : solid / (w * h);
+    });
+    const mipmaps = [];
+    let level = pixels.data;
+    let levelSize = size;
+    for (let k = 1; k <= MIP_LEVELS; k++) {
+      const next = new Uint8Array((levelSize / 2) ** 2 * 4);
+      boxes.forEach((box, i) => { boxes[i] = halve(level, levelSize, next, box, coverages[i]); });
+      levelSize /= 2;
+      level = next;
+      mipmaps.push({ size: levelSize, data: next });
+    }
+    return { atlas: new TextureAtlas(pixels, uv), pixels, uv, size, mipmaps };
   }
 
   // Everything deepslate needs to draw blocks, from main.js's unpacked assets ({ blockstates, models, textures }).
   // Blocks the game doesn't have (from mods) show as missing-texture cubes.
   async function loadResources(assets) {
-    const { atlas, pixels, uv, size } = await packAtlas(assets.textures);
+    const { atlas, pixels, uv, size, mipmaps } = await packAtlas(assets.textures);
     const definitions = new Map();
     for (const [id, json] of Object.entries(assets.blockstates)) definitions.set(`minecraft:${id}`, BlockDefinition.fromJson(json));
     const models = new Map();
@@ -396,6 +530,7 @@
       getTextureAtlas: () => atlas.getTextureAtlas(),
       getTextureUV: (id) => atlas.getTextureUV(id),
       getPixelSize: () => atlas.getPixelSize(),
+      getMipmaps: () => mipmaps,
       getBlockFlags: (id) => flagsOf(id.toString()),
       getBlockProperties: () => null,
       getDefaultBlockProperties: () => null,
@@ -435,10 +570,182 @@
     channel.port2.postMessage(null);
   });
 
+  // ---------- Ambient occlusion ----------
+
+  // How bright a face's corner is with 0 to 3 solid blocks around it (two sides touching it count as all three, as
+  // in the game): corners and creases are a little darker, which gives a build its depth.
+  const SHADE = [0.55, 0.7, 0.85, 1];
+
+  // Darkens the corners of a block's faces (a mesh as finishChunkMesh leaves it: in the structure's blocks, with
+  // normals) by the solid blocks around them, in structure. Each face looks at the layer of blocks in front of it:
+  // the shade at the 4 corners of that block's side, blended for where the face's corners lie on it (a slab's side
+  // or a button gets the part it covers). The shade goes into the vertex colour, which the shader multiplies by.
+  function shadeCorners(mesh, structure, resources) {
+    const solid = structure.isSolid || ((x, y, z) => {
+      const block = structure.getBlock([x, y, z]);
+      return block ? Boolean(resources.getBlockFlags(block.state.getName())?.opaque) : false;
+    });
+    const coord = (p, i) => (i === 0 ? p.x : i === 1 ? p.y : p.z);
+    const cell = [0, 0, 0];
+    const shades = [0, 0, 0, 0];
+    // Whether the block beside cell, du along u and dv along v, is solid (1) or not (0).
+    let u = 0;
+    let v = 0;
+    const at = (du, dv) => {
+      const x = cell[0] + (u === 0 ? du : v === 0 ? dv : 0);
+      const y = cell[1] + (u === 1 ? du : v === 1 ? dv : 0);
+      const z = cell[2] + (u === 2 ? du : v === 2 ? dv : 0);
+      return solid(x, y, z) ? 1 : 0;
+    };
+    const corner = (su, sv) => {
+      const a = at(su, 0);
+      const b = at(0, sv);
+      return SHADE[a && b ? 0 : 3 - a - b - at(su, sv)];
+    };
+    for (const quad of mesh.quads) {
+      const n = quad.v1.normal;
+      if (!n) continue;
+      const axis = Math.abs(n.x) > 0.99 ? 0 : Math.abs(n.y) > 0.99 ? 1 : Math.abs(n.z) > 0.99 ? 2 : -1;
+      if (axis < 0) continue; // a slanted face (a plant's cross, say): left as it is
+      u = (axis + 1) % 3;
+      v = (axis + 2) % 3;
+      const { v1, v2, v3, v4 } = quad;
+      for (let i = 0; i < 3; i++) {
+        const center = (coord(v1.pos, i) + coord(v2.pos, i) + coord(v3.pos, i) + coord(v4.pos, i)) / 4;
+        cell[i] = Math.floor(center + coord(n, i) * 0.501);
+      }
+      const c00 = corner(-1, -1);
+      const c10 = corner(1, -1);
+      const c01 = corner(-1, 1);
+      const c11 = corner(1, 1);
+      if (c00 === 1 && c10 === 1 && c01 === 1 && c11 === 1) continue;
+      [v1, v2, v3, v4].forEach((vertex, i) => {
+        const fu = Math.min(1, Math.max(0, coord(vertex.pos, u) - cell[u]));
+        const fv = Math.min(1, Math.max(0, coord(vertex.pos, v) - cell[v]));
+        const shade = (c00 * (1 - fu) + c10 * fu) * (1 - fv) + (c01 * (1 - fu) + c11 * fu) * fv;
+        const c = vertex.color || [1, 1, 1];
+        vertex.color = [c[0] * shade, c[1] * shade, c[2] * shade]; // colours are shared between corners
+        shades[i] = shade;
+      });
+      // A quad is drawn as two triangles split from its first corner to its third. Split along the darker pair, or
+      // a single dark corner shows as a hard diagonal line.
+      if (shades[1] + shades[3] < shades[0] + shades[2]) {
+        [quad.v1, quad.v2, quad.v3, quad.v4] = [v2, v3, v4, v1];
+      }
+    }
+  }
+
+  // deepslate's block shader, but faces that aren't see-through (cutout: in the main mesh) are drawn wholly or not
+  // at all, so the soft edges of far-off leaves' mipmaps don't blend with whatever happens to be drawn behind them.
+  // Each side is as light as the game makes it: the top fully, north and south 80%, east and west 60%, the bottom
+  // half (a slanted face in between), so white blocks show their shape too.
+  const VERTEX_SHADER = `
+    attribute vec4 vertPos;
+    attribute vec2 texCoord;
+    attribute vec4 texLimit;
+    attribute vec3 vertColor;
+    attribute vec3 normal;
+    uniform mat4 mView;
+    uniform mat4 mProj;
+    varying highp vec2 vTexCoord;
+    varying highp vec4 vTexLimit;
+    varying highp vec3 vTintColor;
+    varying highp float vLighting;
+    void main(void) {
+      gl_Position = mProj * mView * vertPos;
+      vTexCoord = texCoord;
+      vTexLimit = texLimit;
+      vTintColor = vertColor;
+      vLighting = normal.x * normal.x * 0.6 + normal.z * normal.z * 0.8 + normal.y * normal.y * (normal.y > 0.0 ? 1.0 : 0.5);
+    }
+  `;
+  const FRAGMENT_SHADER = `
+    precision highp float;
+    varying highp vec2 vTexCoord;
+    varying highp vec4 vTexLimit;
+    varying highp vec3 vTintColor;
+    varying highp float vLighting;
+    uniform sampler2D sampler;
+    uniform highp float pixelSize;
+    uniform float cutout;
+    void main(void) {
+      vec4 texColor = texture2D(sampler, clamp(vTexCoord,
+        vTexLimit.xy + vec2(0.5, 0.5) * pixelSize,
+        vTexLimit.zw - vec2(0.5, 0.5) * pixelSize));
+      if (cutout > 0.5) {
+        if (texColor.a < 0.5) discard;
+        texColor.a = 1.0;
+      } else if (texColor.a < 0.01) discard;
+      gl_FragColor = vec4(texColor.rgb * vTintColor * vLighting, texColor.a);
+    }
+  `;
+
+  function compileProgram(gl, vertexSource, fragmentSource) {
+    const shader = (type, source) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, source);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(`Shader: ${gl.getShaderInfoLog(s)}`);
+      return s;
+    };
+    const program = gl.createProgram();
+    gl.attachShader(program, shader(gl.VERTEX_SHADER, vertexSource));
+    gl.attachShader(program, shader(gl.FRAGMENT_SHADER, fragmentSource));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(`Shader: ${gl.getProgramInfoLog(program)}`);
+    return program;
+  }
+
   // deepslate's renderer with our own camera lens (a narrower view, with less fisheye, that reaches far enough for big
   // builds, sized by the canvas itself, which may not be on the page), and see-through faces drawn after everything
   // else without hiding what's behind them, so glass shows what's on its other side, other glass included.
+  // Also: the atlas with its mipmaps, corners shaded by the blocks around them (shadeCorners), and sides hidden by
+  // their neighbours found straight from the block grid (see structureOf). hiddenSides: sides never drawn at all
+  // ("up", "north"...), for a camera that never sees them.
   class Renderer extends StructureRenderer {
+    constructor(gl, structure, resources, options) {
+      super(gl, structure, resources, options);
+      // The page takes the canvas's colours as already multiplied by how see-through they are. deepslate blends the
+      // see-through ones' colours right but not their opacity, which comes out far too low: a pane of white glass
+      // then lights up whatever's behind the canvas instead of covering it, as a glowing white blob. Opacity adds up
+      // as it should this way.
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      this.shaderProgram = compileProgram(gl, VERTEX_SHADER, FRAGMENT_SHADER);
+      this.cutoutLocation = gl.getUniformLocation(this.shaderProgram, 'cutout');
+      const { chunkBuilder } = this;
+      const finish = chunkBuilder.finishChunkMesh;
+      chunkBuilder.finishChunkMesh = function finishChunkMesh(mesh, pos) {
+        finish.call(this, mesh, pos);
+        shadeCorners(mesh, this.structure, resources);
+      };
+      const renderer = this;
+      const needsCull = chunkBuilder.needsCull;
+      chunkBuilder.needsCull = function cull(block, dir) {
+        if (renderer.hiddenSides?.has(dir)) return true;
+        return this.structure.cullAgainst?.(block, dir) ?? needsCull.call(this, block, dir);
+      };
+      this.useMipmaps(resources.getMipmaps?.());
+    }
+
+    // Our own mipmaps in place of the ones deepslate made (which mix neighbouring textures), with each pixel's
+    // nearest texel of the two nearest levels: sharp up close, smooth far away. WebGL 2 stops at the last of ours;
+    // WebGL 1 can't, so there the levels below it (a block smaller than a pixel by then) are deepslate's.
+    useMipmaps(mipmaps) {
+      const { gl } = this;
+      gl.bindTexture(gl.TEXTURE_2D, this.atlasTexture);
+      if (!mipmaps?.length) {
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        return;
+      }
+      mipmaps.forEach(({ size, data }, i) => {
+        gl.texSubImage2D(gl.TEXTURE_2D, i + 1, 0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      });
+      if (typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext) {
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, mipmaps.length);
+      }
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_LINEAR);
+    }
+
     getPerspective() {
       const { width, height } = this.gl.canvas;
       const far = this.far || 1000;
@@ -459,7 +766,9 @@
       this.prepareDraw(viewMatrix);
       const chunks = this.chunkBuilder.chunks.flat(2).filter(Boolean);
       const options = { pos: true, color: true, texture: true, normal: true };
+      gl.uniform1f(this.cutoutLocation, 1);
       for (const chunk of chunks) if (!chunk.mesh.isEmpty()) this.drawMesh(chunk.mesh, options);
+      gl.uniform1f(this.cutoutLocation, 0);
       gl.depthMask(false);
       for (const chunk of chunks) if (!chunk.transparentMesh.isEmpty()) this.drawMesh(chunk.transparentMesh, options);
       gl.depthMask(true);
@@ -467,18 +776,18 @@
   }
 
   // A schematic on a canvas, seen from yaw and pitch (radians) at a distance that fits it, times zoom; pan moves the
-  // point looked at across the screen.
+  // point looked at across the screen. fixedCamera: it's only ever seen from the first view (a picture for a tile),
+  // so the sides facing away (the bottom, north and west) aren't built at all.
   class View {
-    constructor(canvas, resources, { keepPicture = false } = {}) {
+    constructor(canvas, resources, { keepPicture = false, fixedCamera = false } = {}) {
       this.canvas = canvas;
       this.resources = resources;
-      this.gl = canvas.getContext('webgl', { alpha: true, antialias: true, preserveDrawingBuffer: keepPicture });
+      const attributes = { alpha: true, antialias: true, preserveDrawingBuffer: keepPicture };
+      // WebGL 2 where there is, for its mipmaps (see Renderer.useMipmaps); deepslate's drawing works on either.
+      this.gl = canvas.getContext('webgl2', attributes) || canvas.getContext('webgl', attributes);
       if (!this.gl) throw new Error("This computer can't draw 3D here (WebGL is off).");
       this.renderer = new Renderer(this.gl, new Structure([1, 1, 1]), resources, { chunkSize: CHUNK });
-      // Sharp pixels, and no colours bleeding in from neighbouring textures in the atlas when far away.
-      const gl = this.gl;
-      gl.bindTexture(gl.TEXTURE_2D, this.renderer.atlasTexture);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      if (fixedCamera) this.renderer.hiddenSides = new Set(['down', 'north', 'west']);
       this.model = null;
       this.building = 0;
       this.reset();
@@ -519,6 +828,8 @@
         renderer.chunkBuilder.structure = {
           getBlocks: () => chunk.blocks,
           getBlock: (pos) => structure.getBlock(pos),
+          isSolid: structure.isSolid,
+          cullAgainst: structure.cullAgainst,
           getSize: () => structure.getSize(),
           isInside: (pos) => structure.isInside(pos),
         };
@@ -547,16 +858,64 @@
       this.renderer.setStructure(new Structure([1, 1, 1]));
     }
 
+    // How far away the camera is at zoom 1: far enough that it fits whichever way it's turned (a box rarely fills
+    // its sphere, so a little closer). And the radius of that sphere.
+    fit() {
+      const [w, h, d] = this.model.size;
+      const radius = Math.max(1, Math.hypot(w, h, d) / 2);
+      const aspect = this.canvas.width / this.canvas.height;
+      return { radius, distance: (0.85 * radius) / Math.sin(Math.min(FOV, 2 * Math.atan(Math.tan(FOV / 2) * aspect)) / 2) };
+    }
+
+    // The most it zooms in: to a couple of blocks from the point looked at, however big the build.
+    maxZoom() {
+      return this.model ? Math.max(1, this.fit().distance / 2) : 20;
+    }
+
+    // Draws it filling the picture, margin (a share of each side) left around: what was drawn is measured, moved to
+    // the middle and brought closer until it fits, a few times over (the view's perspective shifts it a little each
+    // time). Fitting the build's own outline rather than the sphere around its box makes a long, flat build fill the
+    // picture rather than lie across it as a thin strip. Needs a canvas that keeps its picture (keepPicture).
+    drawFitted(margin = 0.06) {
+      const { gl, canvas } = this;
+      const w = canvas.width;
+      const h = canvas.height;
+      const pixels = new Uint8Array(w * h * 4);
+      for (let step = 0; step < 3; step++) {
+        this.draw();
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        let [left, right, bottom, top] = [w, -1, h, -1];
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            if (pixels[(y * w + x) * 4 + 3] < 8) continue;
+            if (x < left) left = x;
+            if (x > right) right = x;
+            if (y < bottom) bottom = y;
+            if (y > top) top = y;
+          }
+        }
+        if (right < 0) return; // nothing drawn
+        // How far its middle is from the picture's (pixels right and up), and how much bigger it could be.
+        const dx = (left + right + 1) / 2 - w / 2;
+        const dy = (bottom + top + 1) / 2 - h / 2;
+        const grow = Math.min((w * (1 - 2 * margin)) / (right - left + 1), (h * (1 - 2 * margin)) / (top - bottom + 1));
+        if (Math.abs(grow - 1) < 0.02 && Math.abs(dx) < 1.5 && Math.abs(dy) < 1.5) return;
+        // A pixel, at the distance of the point looked at, is this many blocks across.
+        const { radius, distance } = this.fit();
+        const perPixel = (2 * (distance / this.zoom) * Math.tan(FOV / 2)) / h;
+        this.pan = [this.pan[0] - (dx * perPixel) / radius, this.pan[1] - (dy * perPixel) / radius];
+        this.zoom = Math.min(this.maxZoom(), this.zoom * grow);
+      }
+      this.draw();
+    }
+
     draw() {
       const { gl, canvas, model } = this;
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       if (!model) return;
       const [w, h, d] = model.size;
-      const radius = Math.max(1, Math.hypot(w, h, d) / 2);
-      const aspect = canvas.width / canvas.height;
-      // Far enough that it fits whichever way it's turned (a box rarely fills its sphere, so a little closer).
-      const fit = (0.85 * radius) / Math.sin(Math.min(FOV, 2 * Math.atan(Math.tan(FOV / 2) * aspect)) / 2);
+      const { radius, distance: fit } = this.fit();
       const distance = fit / this.zoom;
       this.renderer.far = distance + radius * 2 + 10;
       this.renderer.setViewport(0, 0, canvas.width, canvas.height);

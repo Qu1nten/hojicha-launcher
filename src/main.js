@@ -354,23 +354,34 @@ function registerIpc() {
   // models). Deleting moves a file to the Recycle Bin, so it can be brought back.
   handle('schematics:list', () => schematics.list());
   // Read in a thread of their own; how far it got goes to the page as it reads.
-  ipcMain.handle('schematics:load', (event, file, cells) => schematics.load(file, cells, (fraction) => {
+  ipcMain.handle('schematics:load', (event, file, cells, budget) => schematics.load(file, cells, budget, (fraction) => {
     if (!event.sender.isDestroyed()) event.sender.send('schematics:progress', file, fraction);
   }));
   handle('schematics:blocks', () => blocks.get());
   handle('schematics:savePreview', (file, dataUrl, info) => schematics.savePreview(file, dataUrl, info));
   handle('schematics:reveal', (file) => shell.showItemInFolder(schematics.check(file)));
-  handle('schematics:openFolder', () => {
+  // The shared folder, or one in it (its names from the top).
+  handle('schematics:openFolder', (parts = []) => {
     fs.mkdirSync(paths.schematics, { recursive: true });
-    return shell.openPath(paths.schematics);
+    return shell.openPath(schematics.folderDir(parts));
   });
-  handle('schematics:import', (files) => schematics.importFiles(files));
-  handle('schematics:trash', async (files) => {
+  handle('schematics:import', (files, parent) => schematics.importFiles(files, parent));
+  // Schematics (paths) and shared folders (their names from the top) with everything in them.
+  handle('schematics:trash', async (files = [], folders = []) => {
+    const dirs = folders.map((parts) => {
+      if (!Array.isArray(parts) || !parts.length) throw new Error('That folder is gone.');
+      return schematics.folderDir(parts);
+    });
     for (const file of files.map(schematics.check)) await shell.trashItem(file);
+    for (const dir of dirs) await shell.trashItem(dir);
     return schematics.list();
   });
-  handle('schematics:group', (files, name) => schematics.group(files, name));
-  handle('schematics:groups', () => schematics.groups());
+  handle('schematics:group', (files, name, parent) => schematics.group(files, name, parent));
+  handle('schematics:groups', (parent) => schematics.groups(parent));
+  handle('schematics:rename', (file, name) => schematics.rename(file, name));
+  handle('schematics:move', (files, folders, target) => schematics.move(files, folders, target));
+  handle('schematics:renameFolder', (parts, name) => schematics.renameFolder(parts, name));
+  handle('schematics:newFolder', (parent, name) => schematics.newFolder(parent, name));
   handle('accounts:loginStart', () => accounts.startMicrosoftLogin());
   handle('accounts:loginFinish', () => accounts.finishMicrosoftLogin());
   handle('accounts:loginCancel', () => accounts.cancelMicrosoftLogin());

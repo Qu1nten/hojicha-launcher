@@ -171,28 +171,45 @@
     </section>
 
     <section id="schematics-view" class="view" hidden>
-      <header class="view-header">
-        <div class="heading">
-          <h1>Schematics</h1>
-          <p class="meta">Shared by every instance. Litematica, WorldEdit and Axiom save here. Drop schematics or folders of them on the launcher to add them.</p>
+      <!-- Like an instance's header: the title (inside a folder, the way back up from it), a row of what's here, and
+           what you do to the folder behind one quiet button. -->
+      <header class="view-header schem-header">
+        <div class="heading schem-heading">
+          <h1 id="schem-title">Schematics</h1>
+          <nav id="schem-crumbs" class="schem-crumbs" aria-label="Folder" hidden></nav>
+          <p id="schem-meta-row" class="meta meta-row" title="Litematica, WorldEdit and Axiom save here. Drop schematics or folders of them on the launcher to add them."></p>
         </div>
         <div class="header-actions">
-          <button type="button" id="schematics-folder" class="quiet">Open folder</button>
+          <div class="more-wrap">
+            <button type="button" id="schem-more" class="quiet more-button" aria-haspopup="menu" aria-expanded="false" aria-controls="schem-more-menu" aria-label="More for this folder" title="More">
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle class="fill" cx="3.2" cy="8" r="1.3"/><circle class="fill" cx="8" cy="8" r="1.3"/><circle class="fill" cx="12.8" cy="8" r="1.3"/></svg>
+            </button>
+            <div id="schem-more-menu" class="menu" role="menu" hidden>
+              <button type="button" role="menuitem" id="schem-new-folder">New folder</button>
+              <button type="button" role="menuitem" id="schematics-folder">Open folder</button>
+            </div>
+          </div>
         </div>
       </header>
-      <div class="schem-bar">
-        <div id="schem-kinds" class="kinds" role="group" aria-label="Show">
+      <!-- Like an instance's tabs: which formats to show, underlined; the tiles' size and the filter at the end of
+           the same row. -->
+      <div class="tabs schem-tabs">
+        <div id="schem-kinds" class="schem-kinds" role="group" aria-label="Show">
           <button type="button" data-kind="all">All</button>
           <button type="button" data-kind="litematica">Litematica</button>
           <button type="button" data-kind="worldedit">WorldEdit</button>
           <button type="button" data-kind="axiom">Axiom</button>
         </div>
-        <input id="schem-filter" type="search" placeholder="Filter" spellcheck="false" autocomplete="off" aria-label="Filter schematics">
+        <div class="schem-bar-end">
+          <button type="button" id="schem-view" class="quiet schem-pick" aria-haspopup="menu" title="Tile size"></button>
+          <input id="schem-filter" type="search" placeholder="Filter" spellcheck="false" autocomplete="off" aria-label="Filter schematics" title="Names, folders and authors">
+        </div>
       </div>
       <p id="schem-note" class="hint schem-note" hidden></p>
       <!-- While schematics are picked (the circle on each one): what to do with them. -->
       <div id="schem-selection" class="schem-selection" hidden>
         <span id="schem-selected-count" class="schem-selected-count" role="status"></span>
+        <button type="button" id="schem-move-selected">Move to...</button>
         <button type="button" id="schem-group">Create group</button>
         <button type="button" id="schem-delete-selected" class="danger">Delete</button>
         <button type="button" id="schem-select-cancel" class="quiet">Cancel</button>
@@ -534,20 +551,37 @@
   <dialog id="schem-dialog" aria-label="Schematic">
     <div class="dialog-body">
       <div class="schem-head">
-        <h2 id="schem-name"></h2>
-        <p id="schem-meta" class="meta"></p>
+        <h2 id="schem-name" title="Double-click to rename"></h2>
+        <input id="schem-rename" class="rename" type="text" maxlength="64" spellcheck="false" autocomplete="off" aria-label="Schematic name" hidden>
+        <p id="schem-meta" class="meta schem-meta"></p>
+        <p id="schem-rename-error" class="error" role="alert"></p>
       </div>
       <div class="schem-stage">
         <canvas id="schem-canvas" aria-label="The schematic in 3D. Drag to turn it, right-drag to move it, scroll to zoom."></canvas>
         <p id="schem-stage-text" class="schem-stage-text" role="status"></p>
         <div id="schem-progress" class="schem-progress" role="progressbar" aria-label="Drawing" aria-valuemin="0" aria-valuemax="100" hidden><span></span></div>
         <p class="schem-hint">Drag to turn · right-drag to move · scroll to zoom · double-click to start over</p>
+        <!-- In the picture's corners: what kind of file it is, and its size (with how much it's shrunk and, when that's
+             within what the 3D view can take, the way to see every block). -->
+        <span id="schem-ext" class="schem-ext"></span>
+        <!-- To the schematics either side of this one in the list behind (← and → too). -->
+        <button type="button" id="schem-prev" class="schem-step schem-step-prev" aria-label="Previous schematic" hidden>
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>
+        </button>
+        <button type="button" id="schem-next" class="schem-step schem-step-next" aria-label="Next schematic" hidden>
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg>
+        </button>
+        <div class="schem-size">
+          <span id="schem-size"></span>
+          <button type="button" id="schem-full" class="schem-full" hidden>Full detail</button>
+        </div>
       </div>
       <div class="dialog-actions">
         <button type="button" id="schem-delete" class="quiet danger">Delete</button>
         <span class="spacer"></span>
+        <button type="button" id="schem-rename-button" class="quiet">Rename</button>
         <button type="button" id="schem-reveal" class="quiet">Show in folder</button>
-        <button type="button" id="schem-done" class="primary" autofocus>Done</button>
+        <button type="button" id="schem-done" class="primary" autofocus>Back</button>
       </div>
     </div>
   </dialog>
@@ -557,7 +591,7 @@
   <dialog id="group-dialog">
     <form id="group-form" method="dialog" class="dialog-body">
       <h2>Create group</h2>
-      <label for="group-name" class="hint">A folder in your schematics. Type the name of a group that's there to add to it.</label>
+      <label for="group-name" id="group-where" class="hint">A folder in your schematics. Type the name of a group that's there to add to it.</label>
       <input id="group-name" type="text" maxlength="64" spellcheck="false" autocomplete="off" list="group-names" required>
       <datalist id="group-names"></datalist>
       <div id="group-error" class="error"></div>
@@ -642,6 +676,37 @@
 
   <!-- A question before something that can't be undone (askConfirm in app.js). The safe answer comes first, so
        it has focus and Enter or Escape never removes anything. -->
+  <!-- What can be done to a schematic or folder: opened by right-clicking it, where it was clicked. -->
+  <div id="schem-menu" class="menu schem-menu" role="menu" hidden></div>
+
+  <!-- A name for something: a new folder, or a schematic or folder renamed. -->
+  <dialog id="name-dialog">
+    <form id="name-form" method="dialog" class="dialog-body">
+      <h2 id="name-title"></h2>
+      <label for="name-input" id="name-label" class="hint"></label>
+      <input id="name-input" type="text" maxlength="64" spellcheck="false" autocomplete="off" required>
+      <div id="name-error" class="error"></div>
+      <div class="dialog-actions">
+        <button type="button" id="name-cancel" class="quiet">Cancel</button>
+        <button type="submit" id="name-ok" class="primary"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Where to move schematics or folders: every shared folder, the one they're in marked. -->
+  <dialog id="move-dialog">
+    <form id="move-form" method="dialog" class="dialog-body">
+      <h2 id="move-title"></h2>
+      <p class="hint">Pick a folder.</p>
+      <div id="move-tree" class="move-tree" role="listbox" aria-label="Folders"></div>
+      <div id="move-error" class="error"></div>
+      <div class="dialog-actions">
+        <button type="button" id="move-cancel" class="quiet">Cancel</button>
+        <button type="submit" id="move-ok" class="primary" disabled>Move here</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="confirm-dialog">
     <div class="dialog-body">
       <h2 id="confirm-title"></h2>

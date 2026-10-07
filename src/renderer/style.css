@@ -225,6 +225,9 @@ input:focus-visible, select:focus-visible { outline: none; }
   box-shadow: inset 0 -1px rgba(var(--clay-rgb), 0.6); /* hidden behind .brand, so the sidebar runs on unbroken */
 }
 .titlebar button { -webkit-app-region: no-drag; }
+/* While a popup is open, the title bar isn't a place to drag the window from: Windows takes clicks on such a place
+   for itself, so the page never sees them, and a click there should close the popup like one anywhere around it. */
+:root:has(dialog[open]) .titlebar { -webkit-app-region: no-drag; }
 
 .brand {
   width: var(--sidebar-width);
@@ -1160,21 +1163,37 @@ dialog[open], dialog[open]::backdrop { opacity: 1; }
 .library-icon { width: 32px; height: 32px; flex-shrink: 0; display: grid; place-items: center; color: var(--liquor-text); font-size: 22px; }
 .library-icon .icon { stroke-width: 1.2; }
 
-.schem-bar { display: flex; align-items: center; gap: 12px; padding: 22px 0 10px; }
-.schem-bar .kinds { padding: 0; }
-.schem-bar input { margin-left: auto; width: 220px; }
+/* The header is one line: the title (or the way back up from a folder), an (i) with what the view is, and the
+   folder buttons; the format filters and the filter box are the line under it. */
+/* Like an instance's header and tabs: the title (or the way up from a folder) over a row of what's here, the ⋯ beside
+   it; the formats underlined like tabs, with the tile size and filter at the end of their row. */
+.schem-heading h1[hidden] { display: none; }
+.schem-tabs { justify-content: space-between; align-items: stretch; gap: 12px; margin-top: 22px; }
+.schem-kinds { display: flex; gap: 22px; }
+.schem-bar-end { display: flex; align-items: center; gap: 2px; padding-bottom: 6px; }
+.schem-tabs .schem-pick { padding: 5px 10px; border-radius: 8px; font-size: var(--text-s); font-weight: 400; color: var(--steam-dim); }
+.schem-tabs .schem-pick:hover:not(:disabled) { color: var(--steam); background: var(--kiln); }
+.schem-pick::after { content: " ▾"; font-size: 11px; }
+.schem-bar-end input { width: 220px; margin-left: 10px; padding-top: 5px; padding-bottom: 5px; }
+.schem-tabs + .schem-note, .schem-tabs ~ .schem-scroll { margin-top: 12px; }
 .schem-note[hidden] { display: none; }
 .schem-note { margin-bottom: 8px; }
 .schem-scroll { padding-top: 4px; }
-.schem-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.schem-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile, 190px), 1fr)); gap: 14px; }
+/* Tile sizes: the narrowest a tile gets, and how tall its picture is. */
+.schem-view-large { --tile: 260px; --tile-pic: 200px; }
+.schem-view-small { --tile: 140px; --tile-pic: 104px; }
+.schem-view-small .schem-grid { gap: 10px; }
+.schem-view-small .schem-text { padding: 7px 10px 9px; }
 .schem-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 28px 0 12px; font-size: var(--text-s); font-weight: 700; color: var(--steam-dim); }
+.schem-group:first-child { margin-top: 4px; }
 .schem-group span { font-weight: 400; font-size: var(--text-xs); }
 .schem-empty { max-width: 460px; }
 
 /* A tile: the picture on the main area's colour, the name and size under it. */
 .schem-tile { display: flex; flex-direction: column; min-width: 0; padding: 0; overflow: hidden; border-radius: 12px; border: 1px solid transparent; background: var(--kiln); text-align: left; font-weight: 400; }
 .schem-tile:hover:not(:disabled) { border-color: var(--clay); background: var(--kiln-raised); }
-.schem-pic { position: relative; height: 150px; overflow: hidden; display: grid; place-items: center; background: var(--roast); }
+.schem-pic { position: relative; height: var(--tile-pic, 150px); overflow: hidden; display: grid; place-items: center; background: var(--roast); }
 .schem-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .schem-pic-text { font-size: var(--text-xs); color: var(--steam-dim); }
 /* A tile still waiting for its picture: "Waiting...", then "Drawing..." with a small bar filling up, gently pulsing so
@@ -1183,7 +1202,49 @@ dialog[open], dialog[open]::backdrop { opacity: 1; }
 .schem-pic-wait.drawing .schem-pic-text { color: var(--steam); animation: steep 1.6s ease-in-out infinite; }
 .schem-mini-bar { width: 96px; height: 4px; border-radius: 999px; background: var(--kiln-raised); overflow: hidden; }
 .schem-mini-bar span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--liquor); transition: width 120ms linear; }
-.schem-type { position: absolute; top: 8px; left: 8px; padding: 1px 8px; border-radius: 999px; font-size: var(--text-xs); font-weight: 500; color: var(--steam-dim); background: var(--kiln); }
+/* The format's mark in the picture's corner, and in the filter's results the folder it's in in the other. */
+.schem-format { position: absolute; right: 8px; bottom: 8px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; color: var(--steam-dim); background: color-mix(in srgb, var(--kiln) 80%, transparent); }
+.schem-format svg { width: 15px; height: 15px; }
+.schem-where { position: absolute; top: 8px; left: 8px; max-width: calc(100% - 52px); display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px; font-size: var(--text-xs); font-weight: 500; color: var(--steam); background: color-mix(in srgb, var(--kiln) 85%, transparent); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.schem-folder-icon { width: 14px; height: 14px; flex: none; color: var(--liquor-text); }
+/* A folder: a stack of cards (the edges of two more show above it), with four of the pictures in it. */
+.schem-folder { display: flex; min-width: 0; padding-top: 8px; }
+.schem-folder .schem-tile { flex: 1; box-shadow: 0 -4px 0 -2px var(--kiln-raised), 0 -8px 0 -5px var(--clay); }
+.schem-folder .schem-tile:hover:not(:disabled) { box-shadow: 0 -4px 0 -2px var(--clay), 0 -8px 0 -5px var(--edge); }
+.schem-folder .schem-name { display: flex; align-items: center; gap: 6px; }
+.schem-folder .schem-name span { overflow: hidden; text-overflow: ellipsis; }
+.schem-mosaic { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; background: var(--kiln); }
+.schem-mosaic div { position: relative; overflow: hidden; background: var(--roast); }
+.schem-mosaic.n1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.schem-mosaic.n2 { grid-template-rows: 1fr; }
+.schem-mosaic.n3 div:first-child { grid-row: span 2; }
+/* Inside a folder: back, then the way from the top to it. */
+/* Inside a folder, in the title's place: back, the folders above (places to drop things into too), then this one as
+   big as the title. */
+.schem-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; font-size: var(--text-l); }
+.schem-crumbs[hidden] { display: none; }
+.schem-crumbs button { padding: 2px 8px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--steam-dim); font-weight: 400; font-size: inherit; }
+.schem-crumbs button:hover { background: var(--kiln); color: var(--steam); }
+.schem-crumbs .schem-back { width: 34px; height: 34px; margin-right: 8px; padding: 0; display: grid; place-items: center; border-color: var(--clay); border-radius: 999px; }
+.schem-here { padding: 0 8px; font-size: var(--text-xl); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.schem-crumb-sep { color: var(--steam-dim); opacity: 0.6; }
+/* A picture that couldn't be drawn: why, on hovering it, and a way to try again. */
+.schem-retry { position: absolute; left: 50%; top: calc(var(--tile-pic, 150px) / 2 + 18px); transform: translateX(-50%); padding: 3px 12px; font-size: var(--text-xs); }
+/* Where something dragged would be moved to. */
+.schem-folder.schem-drop .schem-tile, .schem-folder.schem-drop .schem-tile:hover:not(:disabled) { border-color: var(--liquor); background: var(--kiln-raised); }
+.schem-crumbs button.schem-drop { border-color: var(--liquor); background: var(--kiln-raised); color: var(--steam); }
+/* The right-click menu: where it was clicked. */
+.schem-menu { position: fixed; top: 0; right: auto; z-index: 30; min-width: 190px; }
+.schem-menu > button.danger:hover:not(:disabled) { color: var(--ember); }
+.schem-menu > button:disabled { color: var(--steam-dim); opacity: 0.55; }
+/* Where to move to: every shared folder as a tree. */
+.move-tree { display: flex; flex-direction: column; gap: 1px; max-height: min(52vh, 420px); overflow-y: auto; margin: 10px 0 4px; padding: 6px; border: 1px solid var(--clay); border-radius: 10px; background: var(--roast); }
+.move-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid transparent; border-radius: 6px; background: none; text-align: left; font-weight: 400; }
+.move-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.move-row:hover:not(:disabled) { background: var(--kiln); }
+.move-row[aria-selected="true"], .move-row[aria-selected="true"]:hover:not(:disabled) { border-color: var(--liquor); background: var(--kiln-raised); }
+.move-row:disabled { opacity: 0.45; }
+.move-row:disabled .schem-folder-icon { color: var(--steam-dim); }
 .schem-text { display: flex; flex-direction: column; padding: 9px 12px 11px; min-width: 0; }
 /* The circle in a tile's corner that picks it: shows on hover, and on every tile while any are picked. Picked, it's
    filled with a tick and the tile is outlined. */
@@ -1202,16 +1263,53 @@ dialog[open], dialog[open]::backdrop { opacity: 1; }
 .schem-sub { font-size: var(--text-xs); color: var(--steam-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The big view: the name and what it is over the schematic in 3D, as big as the window allows. */
-#schem-dialog { width: min(1100px, calc(100vw - 48px)); }
-.schem-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+/* The window less the same room on every side (to click to close it), growing and shrinking with the window; the
+   picture takes whatever height is left. Snug inside. */
+#schem-dialog {
+  --around: clamp(48px, 11vmin, 120px);
+  box-sizing: border-box;
+  width: calc(100vw - 2 * var(--around));
+  height: calc(100vh - 2 * var(--around));
+  max-width: none;
+  max-height: none;
+  padding: 16px 18px 14px;
+}
+#schem-dialog .dialog-body { gap: 10px; height: 100%; }
+#schem-dialog .dialog-actions { margin-top: 0; }
+.schem-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 20px; padding: 0 2px; }
 .schem-head h2 { margin: 0; overflow-wrap: anywhere; }
 .schem-head .meta { margin: 0; }
-.schem-stage { position: relative; min-width: 0; border-radius: 12px; background: var(--roast); overflow: hidden; }
-#schem-canvas { display: block; width: 100%; height: min(640px, calc(100vh - 230px)); cursor: grab; touch-action: none; }
+/* What it says about itself, each part with room around it. */
+.schem-meta { display: flex; flex-wrap: wrap; gap: 2px 18px; }
+.schem-meta:empty { display: none; }
+/* In the picture: the file's kind top left, its size bottom right (the hint for the mouse bottom left, cut short when
+   there isn't room for both). */
+.schem-ext, .schem-size { position: absolute; display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--text-xs); color: var(--steam-dim); }
+.schem-ext { left: 10px; top: 10px; padding: 3px 9px 3px 7px; border-radius: 999px; background: color-mix(in srgb, var(--kiln) 85%, transparent); font-weight: 500; pointer-events: none; }
+.schem-ext:empty { display: none; }
+.schem-ext svg { width: 14px; height: 14px; }
+/* Either side of the picture, half way up: to the schematic before or after this one. */
+.schem-step { position: absolute; top: 50%; z-index: 1; width: 36px; height: 36px; padding: 0; display: grid; place-items: center; transform: translateY(-50%); border-radius: 999px; border-color: transparent; background: color-mix(in srgb, var(--kiln) 85%, transparent); color: var(--steam); font-size: 18px; }
+.schem-step:hover:not(:disabled) { background: var(--kiln-raised); border-color: var(--clay); }
+.schem-step[hidden] { display: none; }
+.schem-step-prev { left: 10px; }
+.schem-step-next { right: 10px; }
+.schem-size { right: 8px; bottom: 6px; padding: 2px 3px 2px 10px; border-radius: 999px; background: color-mix(in srgb, var(--kiln) 85%, transparent); }
+.schem-size:not(:has(.schem-full:not([hidden]))) { padding-right: 10px; }
+.schem-size:has(#schem-size:empty) { display: none; }
+.schem-full { padding: 2px 10px; font-size: var(--text-xs); }
+.schem-full[hidden] { display: none; }
+/* Renaming: the name turns into a text box of the same size, as an instance's does. */
+.schem-head .rename { flex: 0 1 420px; min-width: 0; margin: -1px 0 -1px -9px; padding: 0 8px; font-size: var(--text-l); font-weight: 700; line-height: 1.2; background: transparent; border-color: var(--liquor); }
+.schem-head .rename[hidden] { display: none; }
+.schem-head .error { flex-basis: 100%; margin: 0; }
+.schem-head .error:empty { display: none; }
+.schem-stage { position: relative; flex: 1; min-width: 0; min-height: 160px; border-radius: 12px; background: var(--roast); overflow: hidden; }
+#schem-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
 #schem-canvas:active { cursor: grabbing; }
 .schem-stage-text { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; margin: 0; text-align: center; color: var(--steam-dim); pointer-events: none; }
 .schem-stage-text:empty { display: none; }
-.schem-hint { position: absolute; left: 12px; bottom: 8px; margin: 0; font-size: var(--text-xs); color: var(--steam-dim); pointer-events: none; }
+.schem-hint { position: absolute; left: 12px; bottom: 8px; max-width: calc(100% - 340px); margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--text-xs); color: var(--steam-dim); pointer-events: none; }
 /* While it's being built: a thin bar across the bottom of the picture, filling up. */
 .schem-progress { position: absolute; left: 50%; bottom: 36px; width: min(260px, 50%); height: 4px; transform: translateX(-50%); border-radius: 999px; background: var(--kiln-raised); overflow: hidden; }
 .schem-progress[hidden] { display: none; }
@@ -1225,3 +1323,5 @@ body.dropping-files .app-drop { display: grid; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+/* The WorldEdit axe is pixel art on a 13 x 13 grid: shown at 13 pixels, each of its pixels is one of the screen's. */
+.schem-format svg[viewBox="0 0 13 13"], .schem-ext svg[viewBox="0 0 13 13"], .schem-folder-icon[viewBox="0 0 13 13"] { width: 13px; height: 13px; }

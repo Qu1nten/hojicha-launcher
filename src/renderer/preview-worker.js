@@ -21,12 +21,10 @@ self.onmessage = ({ data }) => {
 async function draw({ id, model }) {
   try {
     schematicKit.prepare(model);
-    if (!view) {
-      view = new schematicKit.View(new OffscreenCanvas(480, 360), await resources, { keepPicture: true });
-      view.zoom = 0.85; // the picture keeps a margin, whichever way the schematic is shaped
-    }
+    if (!view) view = new schematicKit.View(new OffscreenCanvas(480, 360), await resources, { keepPicture: true, fixedCamera: true });
     await view.show(model, (fraction) => self.postMessage({ id, fraction }));
-    view.draw();
+    view.reset();
+    view.drawFitted(); // filling the picture, however it's shaped
     const blob = await view.canvas.convertToBlob({ type: 'image/png' });
     const url = new FileReaderSync().readAsDataURL(blob);
     view.clear(); // lets go of the blocks until the next one

@@ -17,8 +17,9 @@ const AIR = new Set([
   'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'minecraft:structure_void', 'minecraft:__reserved__',
 ]);
 // At most this many places in the box are kept track of (2 bytes each); a bigger box is shrunk to fit. The one asked
-// for (read's cells) may be less: a tile's small picture needs less detail, and is made much quicker with less.
-const MAX_CELLS = 32 * 1024 * 1024;
+// for (read's cells) may be less: a tile's small picture needs less detail, and is made much quicker with less. (The
+// 3D view's page maps a box this big too: see renderer/schematics.js.)
+const MAX_CELLS = 64 * 1024 * 1024;
 let maxCells = MAX_CELLS;
 // Block entity data (signs, banners...) is kept for this many at most, and only when nothing was shrunk.
 const MAX_ENTITIES = 20000;
@@ -127,6 +128,14 @@ async function readRoot(src, onArray) {
 const num = (tag) => (tag && typeof tag.v === 'number' ? tag.v : 0);
 const str = (tag) => (tag?.t === 8 ? tag.v : '');
 const compound = (tag) => (tag?.t === 10 ? tag.v : {});
+// A time the file recorded (a long of milliseconds), or null for none (or a nonsense one).
+const time = (tag) => {
+  if (tag?.t !== 4) return null;
+  const ms = tag.v[0] * 2 ** 32 + (tag.v[1] >>> 0);
+  return ms > Date.UTC(2009, 0) && ms < Date.now() + 864e5 ? ms : null;
+};
+// The game's data version it was saved with (which game version that is: core/schematics.js), or null.
+const dataVersion = (tag) => num(tag) || null;
 const list = (tag) => (tag?.t === 9 ? tag.v : []);
 const fullName = (name) => (name.includes(':') ? name : `minecraft:${name}`);
 const intArray = (tag) => {
@@ -255,6 +264,7 @@ class Blocks {
       scale,
       realSize: this.count ? this.max.map((v, a) => v - this.min[a] + 1) : [0, 0, 0],
       realCount: this.count,
+      box: Math.max(1, ...this.parts.map((p) => p.w * p.h * p.l)), // the biggest part's box, which decided the scale
       entities,
       ...extra,
     };
@@ -415,7 +425,8 @@ async function readLitematic(src) {
       blocks.entities.push({ pos: at, nbt: trimEntity(entity) });
     }
   }
-  return blocks.finish({ author: str(compound(root.Metadata).Author) || null });
+  const meta = compound(root.Metadata);
+  return blocks.finish({ author: str(meta.Author) || null, created: time(meta.TimeCreated), dataVersion: dataVersion(root.MinecraftDataVersion) });
 }
 
 function startRegion(blocks, region) {
@@ -464,7 +475,9 @@ async function readSponge(src) {
     const pos = intArray(entity.v.Pos);
     if (pos.length === 3) blocks.entities.push({ pos, nbt: entity.v.Data?.t === 10 ? trimEntity(entity.v.Data) : trimEntity(entity) });
   }
-  return blocks.finish();
+  // WorldEdit's Metadata has the time it was saved (Date) only in newer versions; Axiom adds an Author.
+  const meta = compound(root.Metadata);
+  return blocks.finish({ author: str(meta.Author) || null, created: time(meta.Date), dataVersion: dataVersion(root.DataVersion) });
 }
 
 // The old .schematic: block numbers (with AddBlocks for the high bits of numbers past 255) and data values, turned
@@ -493,7 +506,7 @@ function readLegacy(root) {
   const part = blocks.part(size, local);
   const put = makePlacer(blocks, part);
   for (const value of states) put(value);
-  return blocks.finish();
+  return blocks.finish({ legacy: true }); // from before 1.13, which version isn't saved
 }
 
 // Axiom: a magic number, a header (name, author...), a preview picture, then the blocks as gzipped NBT in 16x16x16
@@ -544,12 +557,105 @@ async function readAxiom(file) {
     else for (let j = 0; j < 4096; j++) put(0);
   });
   whole.origin = lo;
-  return blocks.finish({ author: str(header.Author) || null });
+  return blocks.finish({ author: str(header.Author) || null, dataVersion: dataVersion(root.DataVersion) });
+}
+
+// ---------- How much the 3D view can take ----------
+
+// What makes a build slow to show isn't the size of its box but its surface: every block side next to air is drawn
+// (about 1.9 faces each, counting stairs, fences and the like), and the 3D view draws in chunks of 8x8x8 blocks,
+// each one costing about the same to draw however few faces it has (6 microseconds or so). So a build is shrunk until
+// the chunks it fills on its surface stay under a frame's worth, its faces under what's quick to build and fits in
+// memory, and its blocks under what's quick to read and send to the page.
+const BUDGET = { chunks: 9000, faces: 2500000, cells: 16 * 1024 * 1024 };
+// What "full detail" may take at most, when asked for: slower to turn (up to about 10 frames a second), and up to a
+// gigabyte or so of memory for the page, but no more.
+const FULL_DETAIL = { chunks: 16000, faces: 3000000, cells: 20 * 1024 * 1024 };
+const FACES_PER_SIDE = 1.9;
+const CHUNK = 8; // as renderer/schematics.js builds them
+
+// A model's surface: block sides next to air or the outside, and the chunks they're in.
+function surfaceOf(model) {
+  const [w, h, d] = model.size;
+  const filled = new Uint8Array(w * h * d);
+  for (let i = 0; i < model.count; i++) filled[(model.y[i] * d + model.z[i]) * w + model.x[i]] = 1;
+  const open = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= w || y >= h || z >= d || !filled[(y * d + z) * w + x] ? 1 : 0);
+  const chunks = new Set();
+  const cw = Math.ceil(w / CHUNK);
+  const cd = Math.ceil(d / CHUNK);
+  let sides = 0;
+  for (let i = 0; i < model.count; i++) {
+    const x = model.x[i];
+    const y = model.y[i];
+    const z = model.z[i];
+    const n = open(x - 1, y, z) + open(x + 1, y, z) + open(x, y - 1, z) + open(x, y + 1, z) + open(x, y, z - 1) + open(x, y, z + 1);
+    if (!n) continue;
+    sides += n;
+    chunks.add((((y / CHUNK) | 0) * cd + ((z / CHUNK) | 0)) * cw + ((x / CHUNK) | 0));
+  }
+  return { faces: Math.round(sides * FACES_PER_SIDE), chunks: chunks.size };
+}
+
+// The model with each f x f x f cube of its cells made one cell (the last block in it, as reading a shrunk one does).
+function shrink(model, f) {
+  const [w, h, d] = model.size.map((n) => Math.max(1, Math.ceil(n / f)));
+  const cells = model.palette.length < 65535 ? new Uint16Array(w * h * d) : new Uint32Array(w * h * d);
+  for (let i = 0; i < model.count; i++) {
+    cells[(((model.y[i] / f) | 0) * d + ((model.z[i] / f) | 0)) * w + ((model.x[i] / f) | 0)] = model.state[i] + 1;
+  }
+  let n = 0;
+  for (let i = 0; i < cells.length; i++) if (cells[i]) n++;
+  const x = new Int32Array(n);
+  const y = new Int32Array(n);
+  const z = new Int32Array(n);
+  const state = new Uint32Array(n);
+  for (let cy = 0, i = 0, at = 0; cy < h; cy++) {
+    for (let cz = 0; cz < d; cz++) {
+      for (let cx = 0; cx < w; cx++, i++) {
+        if (!cells[i]) continue;
+        x[at] = cx;
+        y[at] = cy;
+        z[at] = cz;
+        state[at++] = cells[i] - 1;
+      }
+    }
+  }
+  return { ...model, x, y, z, state, count: n, size: [w, h, d], scale: model.scale * f, entities: [] };
+}
+
+const fits = (cost, limit) => cost.chunks <= limit.chunks && cost.faces <= limit.faces && cost.cells <= limit.cells;
+
+// The 1 in k a model read at 1 in read should be shown at (see BUDGET), from its surface: a surface shrunk f times has
+// about f x f times fewer faces and chunks, and its blocks f x f x f times fewer.
+function scaleFor(model, surface) {
+  const k0 = model.scale;
+  let k = k0;
+  const at = (s) => ({ chunks: surface.chunks * (k0 / s) ** 2, faces: surface.faces * (k0 / s) ** 2, cells: model.count * (k0 / s) ** 3 });
+  while (!fits(at(k), BUDGET)) k++;
+  return k;
 }
 
 // Reads a file of the given kind ('litematica', 'worldedit' or 'axiom'), keeping track of at most cells places.
-// onProgress(fraction) as it goes.
-async function read(file, kind, onProgress, cells = MAX_CELLS) {
+// onProgress(fraction) as it goes. budget: for the 3D view, shrunk until it's quick to show (see BUDGET), with what
+// showing all of it would take (fullCost: { chunks, faces, cells }, estimated) and whether that's allowed
+// (canShowFull: within FULL_DETAIL, and the whole box fits in cells).
+async function read(file, kind, onProgress, cells = MAX_CELLS, budget = false) {
+  let model = await readAny(file, kind, onProgress, cells);
+  if (!budget) return model;
+  const surface = surfaceOf(model);
+  const k0 = model.scale;
+  const fullCost = { chunks: surface.chunks * k0 * k0, faces: surface.faces * k0 * k0, cells: model.realCount };
+  const k = scaleFor(model, surface);
+  if (k % k0 === 0) {
+    if (k > k0) model = shrink(model, k / k0);
+  } else {
+    // Not a whole number of times what was read (1 in 3 from 1 in 2): read again at that.
+    model = await readAny(file, kind, null, Math.ceil(model.box / (k - 0.01) ** 3));
+  }
+  return { ...model, fullCost, canShowFull: model.scale > 1 && k0 === 1 && fits(fullCost, FULL_DETAIL) };
+}
+
+async function readAny(file, kind, onProgress, cells) {
   maxCells = Math.min(cells, MAX_CELLS);
   if (kind === 'axiom') return readAxiom(file);
   const total = fs.statSync(file).size;
@@ -573,7 +679,7 @@ async function read(file, kind, onProgress, cells = MAX_CELLS) {
 module.exports = { read, Source };
 
 if (parentPort && workerData) {
-  read(workerData.file, workerData.kind, (fraction) => parentPort.postMessage({ progress: fraction }), workerData.cells)
+  read(workerData.file, workerData.kind, (fraction) => parentPort.postMessage({ progress: fraction }), workerData.cells, workerData.budget)
     .then((model) => {
       const transfer = [model.x.buffer, model.y.buffer, model.z.buffer, model.state.buffer];
       parentPort.postMessage({ model }, transfer);
