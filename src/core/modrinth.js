@@ -3,10 +3,15 @@ const path = require('path');
 const paths = require('./paths');
 const instances = require('./instances');
 const sync = require('./sync');
+const store = require('./store');
 const { readJsonOr, writeJson } = require('./util');
-const { fetchJson, hashFile, downloadFile } = require('./http');
+const { fetchJson, hashFile } = require('./http');
 
 const API = 'https://api.modrinth.com/v2';
+
+// Windows locks a file while a game has it open, and instances share one copy of a mod or pack (store.js): a game
+// that's playing can hold a file of another instance too.
+const IN_USE = 'a game that is playing uses the same file. Close the game first';
 
 // Modrinth project type -> folder inside the game directory.
 const FOLDERS = { mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks' };
@@ -176,13 +181,21 @@ async function installVersion(instance, version, type, report, visited) {
   const file = version.files.find((f) => f.primary) || version.files[0];
   const folder = FOLDERS[type];
   const gameDir = instances.gameDir(instance.id);
+  const target = `${folder}/${file.filename}`;
   report(`Downloading ${project.title}`);
-  await downloadFile(file.url, path.join(gameDir, folder, file.filename), { sha1: file.hashes.sha1, size: file.size });
+  await store.download(file.url, path.join(gameDir, target), { sha1: file.hashes.sha1, size: file.size });
 
   // Replace any older file of the same project (its details may be the instance's or shared).
   for (const [rel, meta] of Object.entries(records(instance))) {
-    if (meta.projectId === version.project_id && rel !== `${folder}/${file.filename}`) {
-      fs.rmSync(path.join(gameDir, rel), { force: true, recursive: true });
+    if (meta.projectId === version.project_id && rel !== target) {
+      try {
+        fs.rmSync(path.join(gameDir, rel), { force: true, recursive: true });
+      } catch (err) {
+        if (!store.inUse(err)) throw err;
+        // Both versions would stop the game starting: take the new one out again.
+        fs.rmSync(path.join(gameDir, target), { force: true });
+        throw new Error(`${project.title} can't be swapped while ${IN_USE}.`);
+      }
       forgetRecord(instance, rel);
     }
   }
@@ -279,7 +292,11 @@ function toggleMod(id, file, enabled) {
   const target = enabled ? base : `${base}.disabled`;
   if (target === file) return target;
   if (fs.existsSync(path.join(modsDir, target))) throw new Error(`The mods folder already has a file called ${target}.`);
-  fs.renameSync(path.join(modsDir, file), path.join(modsDir, target));
+  try {
+    fs.renameSync(path.join(modsDir, file), path.join(modsDir, target));
+  } catch (err) {
+    throw store.inUse(err) ? new Error(`This mod can't be switched ${enabled ? 'on' : 'off'} while ${IN_USE}.`) : err;
+  }
   const meta = instance.content[`mods/${file}`];
   if (meta) {
     delete instance.content[`mods/${file}`];
@@ -363,7 +380,11 @@ function removeNow(id, type, file) {
   if (!file || file.includes('/') || file.includes('\\') || file === '.' || file === '..') throw new Error('Invalid file name');
   const instance = loadInstance(id);
   const rel = `${FOLDERS[type]}/${file}`;
-  fs.rmSync(path.join(instances.gameDir(id), rel), { force: true, recursive: true, maxRetries: 3 });
+  try {
+    fs.rmSync(path.join(instances.gameDir(id), rel), { force: true, recursive: true, maxRetries: 3 });
+  } catch (err) {
+    throw store.inUse(err) ? new Error(`This can't be removed while ${IN_USE}.`) : err;
+  }
   forgetRecord(instance, rel);
   saveContent(instance);
 }

@@ -6,6 +6,7 @@ const AdmZip = require('adm-zip');
 const instances = require('./instances');
 const minecraft = require('./minecraft');
 const prismPacks = require('./prismPacks');
+const store = require('./store');
 const { fetchJson, downloadFile, runPool } = require('./http');
 
 // A Modrinth modpack is an .mrpack: a zip with modrinth.index.json (game and loader versions, files to download)
@@ -189,6 +190,11 @@ async function fillPrismInstance({ instance, zip, prism }, report) {
     const rel = entry.entryName.slice(prism.gamePrefix.length);
     const target = safeTarget(gameDir, rel);
     const data = entry.getData();
+    if (store.isStorable(rel)) {
+      const sha1 = store.write(data, target); // shared with other instances that have it
+      if (TRACKED.some((dir) => rel.startsWith(dir))) tracked.push({ rel, sha1 });
+      continue;
+    }
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, data);
     if (TRACKED.some((dir) => rel.startsWith(dir))) tracked.push({ rel, sha1: crypto.createHash('sha1').update(data).digest('hex') });
@@ -211,7 +217,9 @@ async function fillInstance(pack, report) {
     return { url, target: safeTarget(gameDir, f.path), rel: f.path.replace(/\\/g, '/'), sha1: f.hashes?.sha1, size: f.fileSize };
   });
   report('Downloading mods', 0);
-  await runPool(downloads, 8, (d) => downloadFile(d.url, d.target, { sha1: d.sha1, size: d.size }),
+  // Mods and packs are shared with other instances that have them (store.js).
+  const get = (d) => (store.isStorable(d.rel) ? store.download : downloadFile)(d.url, d.target, { sha1: d.sha1, size: d.size });
+  await runPool(downloads, 8, get,
     (done, total) => report(`Downloading mods (${done}/${total})`, done / total));
 
   // client-overrides go last so they win over overrides.
@@ -219,8 +227,16 @@ async function fillInstance(pack, report) {
   for (const prefix of ['overrides/', 'client-overrides/']) {
     for (const entry of zip.getEntries()) {
       if (entry.isDirectory || !entry.entryName.startsWith(prefix)) continue;
-      const target = safeTarget(gameDir, entry.entryName.slice(prefix.length));
+      const rel = entry.entryName.slice(prefix.length);
+      const target = safeTarget(gameDir, rel);
+      // A downloaded mod this replaces is a link to the stored copy: writing into it would change it for every
+      // instance, so the link goes first (store.write does the same).
+      if (store.isStorable(rel)) {
+        store.write(entry.getData(), target);
+        continue;
+      }
       fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.rmSync(target, { force: true });
       fs.writeFileSync(target, entry.getData());
     }
   }

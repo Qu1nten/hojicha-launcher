@@ -8,8 +8,9 @@ const path = require('path');
 //   sync-history\ earlier versions of shared settings files, the last 20 of each (sync.js)
 //   skins\       saved skins (skins.js)
 //   meta\        game versions, libraries, assets, Java runtimes, item icons, block models and schematic previews,
-//                shared by all instances
-//   config\      settings, accounts, servers, trusted modpack servers, and Electron's own browser data
+//                shared by all instances, and in files\ the mods and packs instances link to (store.js)
+//   config\      settings, accounts, servers, trusted modpack servers, whether older mod copies were merged into
+//                meta\files (store.js), and Electron's own browser data
 let root = null;
 
 const under = (...parts) => {
@@ -31,6 +32,7 @@ module.exports = {
   get versions() { return under('meta', 'versions'); },
   get libraries() { return under('meta', 'libraries'); },
   get assets() { return under('meta', 'assets'); },
+  get files() { return under('meta', 'files'); },
   get runtimes() { return under('meta', 'java'); },
   get playit() { return under('meta', 'playit'); },
   get icons() { return under('meta', 'icons'); },
@@ -43,6 +45,7 @@ module.exports = {
   get serversFile() { return under('config', 'servers.json'); },
   get serverRestoreFile() { return under('config', 'server-properties-restore.json'); },
   get playitFile() { return under('config', 'playit.json'); },
+  get storeMergedFile() { return under('config', 'store-merged.json'); },
   get trustedPacksFile() { return under('config', 'trusted-packs.json'); },
   get electron() { return under('config', 'electron'); },
 };

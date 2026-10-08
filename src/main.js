@@ -22,6 +22,9 @@ const borderless = require('./core/borderless');
 const skins = require('./core/skins');
 const schematics = require('./core/schematics');
 const blocks = require('./core/blocks');
+const store = require('./core/store');
+const { writeJson } = require('./core/util');
+const { redactor } = require('./core/redact');
 const { autoUpdater } = require('electron-updater');
 
 const EULA_URL = 'https://aka.ms/MinecraftEULA';
@@ -90,14 +93,31 @@ const status = (id, state, text = '', progress = null) => {
     entry.pending = null;
   }, Math.max(0, wait));
 };
-const log = (id, line) => send('log', { id, line });
+// Game output can run to thousands of lines a second while mods load: it goes to the page in batches instead of a
+// message per line.
+const LOG_INTERVAL = 50;
+const pendingLogs = new Map(); // instance id -> lines not sent yet
+let logTimer = null;
+const log = (id, line) => {
+  if (!pendingLogs.has(id)) pendingLogs.set(id, []);
+  pendingLogs.get(id).push(line);
+  logTimer ??= setTimeout(() => {
+    logTimer = null;
+    for (const [logId, lines] of pendingLogs) send('log', { id: logId, lines });
+    pendingLogs.clear();
+  }, LOG_INTERVAL);
+};
+
+// Server consoles have no account token to look for, but a plugin may still print a token it was given.
+const hideSecrets = redactor();
+const serverLog = (id, line) => send('server-log', { id, line: hideSecrets(line) });
 
 servers.setHooks({
   status: (id, state, text = '') => {
     if (state === 'idle' || state === 'error') goOffline(id);
     send('server-status', { id, state, text });
   },
-  log: (id, line) => send('server-log', { id, line }),
+  log: serverLog,
 });
 
 // Online play (see core/playit.js): while a public server runs, playit's agent relays players to it.
@@ -122,12 +142,12 @@ async function goOnline(id) {
   const gone = () => !servers.isRunning(id);
   setOnline(id, { state: 'connecting', text: 'Connecting to playit.gg…' });
   try {
-    await playit.startAgent(id, (line) => send('server-log', { id, line }));
+    await playit.startAgent(id, (line) => serverLog(id, line));
     if (superseded()) return;
     if (gone()) throw new Error('Server stopped');
     const port = servers.port(id);
     const address = await playit.ensureTunnel(port, (err) => {
-      send('server-log', { id, line: `[playit] Creating the tunnel failed: ${err.endpoint} answered ${err.reply}` });
+      serverLog(id, `[playit] Creating the tunnel failed: ${err.endpoint} answered ${err.reply}`);
       setOnline(id, { state: 'manual', port });
     }, () => superseded() || gone());
     if (superseded()) return;
@@ -141,7 +161,7 @@ async function goOnline(id) {
       if (online.has(id)) setOnline(id, null);
       return;
     }
-    if (err.endpoint) send('server-log', { id, line: `[playit] ${err.endpoint} answered ${err.reply}` });
+    if (err.endpoint) serverLog(id, `[playit] ${err.endpoint} answered ${err.reply}`);
     setOnline(id, { state: 'error', text: err.message });
   }
 }
@@ -193,9 +213,11 @@ async function launch(id, options = {}) {
     status(id, 'running', 'Playing', 1);
     // Once the game has finished loading, what it and its mods did to the settings while starting isn't the
     // player's (sync.js). The sound engine starts last; without a sound device the game says it's turning sound off.
+    // The Log tab never shows the account's token (core/redact.js), so the log is safe to share.
+    const hide = redactor([account.accessToken]);
     let loaded = false;
     const onLine = (line) => {
-      log(id, line);
+      log(id, hide(line));
       if (loaded || !/Sound engine started|Error starting SoundSystem/.test(line)) return;
       loaded = true;
       try {
@@ -245,6 +267,23 @@ function unpackIcons() {
   } catch (err) {
     console.error('Could not unpack the item icons:', err.message);
   }
+}
+
+// Once: the mods and packs instances got before store.js become links to one stored copy too, freeing the space the
+// duplicates took. It runs in the background, an instance at a time, and leaves an instance alone while it plays or
+// changes its mods; one it had to leave gets its turn at the next start.
+async function mergeStoredFiles() {
+  if (fs.existsSync(paths.storeMergedFile)) return;
+  let freed = 0;
+  let unfinished = false;
+  for (const instance of instances.list()) {
+    const busy = () => running.has(instance.id) || modrinth.isWorking(instance.id);
+    const result = await store.merge(instances.gameDir(instance.id), busy);
+    freed += result.freed;
+    unfinished ||= result.stopped;
+  }
+  if (freed) console.log(`Merged copies of the same mods and packs, freeing ${Math.round(freed / 1024 / 1024)} MB`);
+  if (!unfinished) writeJson(paths.storeMergedFile, { mergedAt: Date.now(), freedBytes: freed });
 }
 
 // Anything without an icon yet gets a random item, saved so it stays the same.
@@ -751,6 +790,7 @@ app.whenReady().then(() => {
   if (!firstInstance) return;
   sync.relinkAll();
   modrinth.settleAll(); // pack details move to the shared folder they belong with
+  store.prune(); // mods and packs no instance has any more (before anything downloads)
   unpackIcons();
   if (safeStorage.isEncryptionAvailable()) {
     const cipher = {
@@ -764,6 +804,7 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
   startUpdateChecks();
+  setTimeout(() => mergeStoredFiles().catch((err) => console.error('Could not merge mod copies:', err.message)), 5000);
 });
 
 app.on('window-all-closed', () => app.quit());

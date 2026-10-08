@@ -17,7 +17,9 @@ const SYNC_ITEMS = [
   ['options.txt', 'Options and keybinds', 'Copied in when the game starts. The options you change are saved when it closes.'],
   ['servers.dat', 'Server list', 'Copied in when the game starts and saved when it closes.'],
 ];
-const MAX_LOG_LINES = 3000;
+// A game's log is kept whole: the start of it often says why a modded game crashed. A server console can run for days,
+// so it keeps only its newest lines.
+const MAX_SERVER_LOG_LINES = 3000;
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 const state = {
@@ -4255,19 +4257,20 @@ api.onServerStatus(({ id, state: s, text }) => {
 api.onServerLog(({ id, line }) => {
   const lines = (state.serverLogs[id] ??= []);
   lines.push(line.replace(/\x1b\[[0-9;]*m/g, '')); // strip console colour codes
-  if (lines.length > MAX_LOG_LINES) lines.splice(0, lines.length - MAX_LOG_LINES);
+  if (lines.length > MAX_SERVER_LOG_LINES) lines.splice(0, lines.length - MAX_SERVER_LOG_LINES);
   if (state.view === 'server' && id === state.selectedServer) renderServerLog(false);
 });
 
-api.onLog(({ id, line }) => {
+// Game output arrives in batches. Only the new lines are added to the page: redrawing a long log for every batch
+// would slow the launcher down while the game loads.
+api.onLog(({ id, lines: added }) => {
   const lines = (state.logs[id] ??= []);
-  lines.push(line);
-  if (lines.length > MAX_LOG_LINES) lines.splice(0, lines.length - MAX_LOG_LINES);
+  for (const line of added) lines.push(line);
   if (id === state.selected && state.tab === 'log') {
     const logEl = $('#log');
     const scroller = logEl.parentElement;
     const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 20;
-    logEl.textContent = lines.join('\n');
+    logEl.append(`${lines.length > added.length ? '\n' : ''}${added.join('\n')}`);
     if (atBottom) scroller.scrollTop = scroller.scrollHeight;
   }
 });
@@ -4279,6 +4282,7 @@ for (const button of document.querySelectorAll('#instance-view .tabs button')) {
 $('#play').onclick = async () => {
   const inst = current();
   state.logs[inst.id] = [];
+  if (state.tab === 'log') renderLog(); // new lines are added to what's shown, so clear it now
   state.status[inst.id] = { state: 'installing', text: 'Getting ready', progress: 0 };
   renderStatus();
   try {
@@ -4681,6 +4685,7 @@ async function joinWith(instanceId) {
   const id = state.selectedServer;
   if (serverState(id) !== 'running') state.serverLogs[id] = [];
   state.logs[instanceId] = [];
+  if (instanceId === state.selected && state.tab === 'log') renderLog();
   try {
     await api.joinServer(id, instanceId);
   } catch (err) {
