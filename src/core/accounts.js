@@ -172,7 +172,7 @@ async function launchIdentity() {
   }
 
   const signedIn = await freshSession(store, account);
-  return { name: signedIn.name, uuid: signedIn.uuid, accessToken: cipher.decrypt(signedIn.accessToken), userType: 'msa' };
+  return { id: account.id, name: signedIn.name, uuid: signedIn.uuid, accessToken: cipher.decrypt(signedIn.accessToken), userType: 'msa' };
 }
 
 // A Microsoft account with a Minecraft token that still works, signing in again (and saving) when it's nearly expired.
@@ -198,7 +198,8 @@ async function freshSession(store, account) {
 
 // ---------- Skin and cape (Microsoft accounts only) ----------
 
-// A token for the Microsoft account with this id, signing in again when needed.
+// A token for the Microsoft account with this id, signing in again when needed (skins, and core/authProxy.js while
+// the game runs).
 async function tokenFor(id) {
   const store = load();
   const account = store.accounts.find((a) => a.id === id && a.type === 'microsoft');

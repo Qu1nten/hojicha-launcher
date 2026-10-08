@@ -24,6 +24,7 @@
 - **Schematics** — view Litematica, WorldEdit and Axiom files (.litematic, .schem, .schematic, .bp) in 3D and organise them in folders
 - **Two themes** — dark **Hojicha** and light **Matcha**
 - **Sign-in on Microsoft's website** — Hojicha never sees your password; tokens are stored encrypted on your PC
+- **Account protection** — from Minecraft 1.16, the game and its mods get a stand-in for your account's token, which only works through Hojicha while the game runs and can't change your name or skin, so a token copied from the game is useless (turn it off in Settings to use Realms)
 
 ## Install
 

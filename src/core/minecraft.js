@@ -253,15 +253,26 @@ async function installGame(version, report) {
 
 // ---------- Launch ----------
 
+// Minecraft 1.16 and newer (authlib 1.6 and up) read where Mojang's account services are from Java system properties,
+// which is what lets core/authProxy.js stand in for them. Older versions have the addresses built in.
+function readsServiceHosts(version) {
+  const lib = version.libraries.find((l) => l.name.startsWith('com.mojang:authlib:'));
+  const [major, minor] = (lib ? lib.name.split(':')[2] : '0').split('.').map(Number);
+  return major > 1 || (major === 1 && minor >= 6);
+}
+
 // account = { name, uuid, accessToken, userType } from accounts.launchIdentity().
 // options.join = "host:port" makes the game connect to that server straight after starting.
+// options.authProxy = a started core/authProxy.js; used when the version can talk to it (see readsServiceHosts).
 function buildArgs(version, install, gameDir, settings, account, options = {}) {
   const classpath = [...install.classpath, install.clientJar].join(path.delimiter);
+  const proxy = options.authProxy && readsServiceHosts(version) ? options.authProxy : null;
+  const accessToken = proxy ? proxy.token : account.accessToken;
   const vars = {
     auth_player_name: account.name,
     auth_uuid: account.uuid,
-    auth_access_token: account.accessToken,
-    auth_session: account.accessToken,
+    auth_access_token: accessToken,
+    auth_session: accessToken,
     auth_xuid: '',
     clientid: '',
     user_type: account.userType,
@@ -291,6 +302,7 @@ function buildArgs(version, install, gameDir, settings, account, options = {}) {
   if (version.arguments?.jvm) jvm.push(...expand(version.arguments.jvm));
   else jvm.push(`-Djava.library.path=${install.nativesDir}`, '-cp', classpath);
   if (version.extraJvm) jvm.push(...version.extraJvm.map(sub));
+  if (proxy) jvm.push(...proxy.jvmArgs);
 
   const game = version.arguments?.game
     ? expand(version.arguments.game)
@@ -303,10 +315,11 @@ function buildArgs(version, install, gameDir, settings, account, options = {}) {
     game.push('--server', host, '--port', port);
   }
 
-  return [...jvm, version.mainClass, ...game];
+  return { args: [...jvm, version.mainClass, ...game], protectedAccount: Boolean(proxy) };
 }
 
-// Installs everything the instance needs and returns what to spawn.
+// Installs everything the instance needs and returns what to spawn, and whether the game got the account through
+// options.authProxy.
 // report(text, fraction) receives overall progress from 0 to 1 for the launch progress bar.
 async function prepare(instance, gameDir, settings, account, report, options = {}) {
   report('Checking versions', 0.03);
@@ -320,7 +333,7 @@ async function prepare(instance, gameDir, settings, account, report, options = {
   const java = settings.javaPath || await ensureJava(version.javaVersion?.component || 'jre-legacy',
     (done, total) => report(`Preparing Java (${done} of ${total})`, 0.85 + 0.12 * (done / total)));
 
-  return { java, args: buildArgs(version, install, gameDir, settings, account, options) };
+  return { java, ...buildArgs(version, install, gameDir, settings, account, options) };
 }
 
 // Java for a given Minecraft version (used to run servers with the same runtime as the game).

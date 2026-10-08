@@ -19,6 +19,7 @@ const playit = require('./core/playit');
 const accounts = require('./core/accounts');
 const storage = require('./core/storage');
 const borderless = require('./core/borderless');
+const authProxy = require('./core/authProxy');
 const skins = require('./core/skins');
 const schematics = require('./core/schematics');
 const blocks = require('./core/blocks');
@@ -189,6 +190,7 @@ const modWorkDone = (id) => {
 async function launch(id, options = {}) {
   assertIdle(id);
   running.set(id, null);
+  let proxy = null;
   try {
     const instance = instances.get(id);
     const gameDir = instances.gameDir(id);
@@ -197,12 +199,22 @@ async function launch(id, options = {}) {
     const report = (text, progress = null) => status(id, 'installing', text, progress);
     // An instance can have its own memory; otherwise it uses the launcher's default.
     const launchSettings = { ...settings.get(), ...(instance.memoryMb ? { memoryMb: instance.memoryMb } : {}) };
-    const { java, args } = await minecraft.prepare(instance, gameDir, launchSettings, account, report, options);
+    // An offline account's token is worth nothing, so it needs no protecting.
+    if (launchSettings.protectAccount && account.userType === 'msa') {
+      proxy = await authProxy.start({ realToken: () => accounts.tokenFor(account.id), log: (text) => log(id, text) });
+    }
+    const { java, args, protectedAccount } = await minecraft.prepare(instance, gameDir, launchSettings, account, report, { ...options, authProxy: proxy });
+    if (proxy && !protectedAccount) {
+      proxy.close();
+      proxy = null;
+      log(id, `> Account protection needs Minecraft 1.16 or newer, so ${instance.gameVersion} gets your account's real token.`);
+    }
     unpackIcons(); // a newer version may bring new items
     sync.beforeLaunch(instance);
     const fullscreenKey = launchSettings.borderless ? borderless.prepare(gameDir) : null; // after sync: it copies options.txt in
 
     log(id, `> Launching ${instance.name} (${instance.gameVersion} ${instance.loader}) as ${account.name}`);
+    if (proxy) log(id, "> Account protection is on: the game and its mods get a stand-in for your account's token.");
     const child = spawn(java, args, { cwd: gameDir, windowsHide: true });
     running.set(id, child);
     const windowHelper = launchSettings.borderless
@@ -214,7 +226,7 @@ async function launch(id, options = {}) {
     // Once the game has finished loading, what it and its mods did to the settings while starting isn't the
     // player's (sync.js). The sound engine starts last; without a sound device the game says it's turning sound off.
     // The Log tab never shows the account's token (core/redact.js), so the log is safe to share.
-    const hide = redactor([account.accessToken]);
+    const hide = redactor([account.accessToken, proxy?.token]);
     let loaded = false;
     const onLine = (line) => {
       log(id, hide(line));
@@ -235,6 +247,7 @@ async function launch(id, options = {}) {
       finished = true;
       running.delete(id);
       windowHelper?.kill(); // it also stops by itself when the game is gone
+      proxy?.close(); // the stand-in token stops working with it
       try {
         const current = instances.get(id);
         instances.save({ ...current, playtime: (current.playtime || 0) + (Date.now() - started) });
@@ -254,6 +267,7 @@ async function launch(id, options = {}) {
     child.on('exit', (code) => finish(code ? `The game crashed (exit code ${code}). See the Log tab for details.` : 'Game closed', Boolean(code)));
   } catch (err) {
     running.delete(id);
+    proxy?.close();
     status(id, 'error', err.message);
     throw err;
   }
