@@ -237,5 +237,5 @@ async function setCape(id, capeId) {
 
 module.exports = {
   setCipher, summary, current, select, remove, addOffline, refreshProfiles,
-  startMicrosoftLogin, finishMicrosoftLogin, cancelMicrosoftLogin, launchIdentity, profile, changeSkin, setCape,
+  startMicrosoftLogin, finishMicrosoftLogin, cancelMicrosoftLogin, launchIdentity, tokenFor, profile, changeSkin, setCape,
 };

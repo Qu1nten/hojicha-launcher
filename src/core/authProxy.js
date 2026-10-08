@@ -171,7 +171,7 @@ function start({ realToken, log }) {
 
   const server = http.createServer((req, res) => {
     handle(req, res).catch((err) => {
-      log(`> Account protection couldn't reach Mojang: ${err.message}`);
+      log(`> Account protection couldn't pass on a request: ${err.message}`);
       if (!res.headersSent) reply(res, 502, { error: 'BadGateway', errorMessage: err.message });
       else res.destroy();
     });
