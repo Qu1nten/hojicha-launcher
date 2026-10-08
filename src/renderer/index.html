@@ -29,7 +29,7 @@
   </header>
 
   <!-- Over the launcher while schematic files are dragged onto it: dropped, they go to the Schematics (app.js). -->
-  <div id="app-drop" class="app-drop" aria-hidden="true"><span>Drop to add to Schematics</span></div>
+  <div id="app-drop" class="app-drop" aria-hidden="true"><span>Drop schematics to add them, or a modpack to install it</span></div>
 
   <div class="app">
   <aside id="sidebar">
@@ -436,7 +436,7 @@
             <span class="choice-icon"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10.5V2.5M4.8 5.6L8 2.5l3.2 3.1"/><path d="M2.5 10v2.6c0 .5.4.9.9.9h9.2c.5 0 .9-.4.9-.9V10"/></svg></span>
             <span class="choice-text">
               <span class="choice-name">Upload a modpack</span>
-              <span class="choice-desc">Install a modpack from an .mrpack file on your PC.</span>
+              <span class="choice-desc">Install a modpack file from your PC: a Modrinth .mrpack or a Prism Launcher export. You can also drop it on the launcher.</span>
             </span>
           </button>
         </div>
@@ -469,7 +469,11 @@
           <div id="new-upload" class="new-section">
             <div class="upload-box">
               <p id="upload-info" class="hint">No file chosen yet.</p>
-              <button type="button" id="upload-pick">Choose .mrpack file</button>
+              <button type="button" id="upload-pick">Choose modpack file</button>
+            </div>
+            <div id="upload-startup" class="upload-startup" hidden>
+              <p id="upload-startup-text"></p>
+              <label class="check" id="upload-trust-row"><input id="upload-trust" type="checkbox"> I trust this pack</label>
             </div>
           </div>
         </div>

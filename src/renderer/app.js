@@ -1695,7 +1695,7 @@ function showServerError(id, err) {
 }
 
 // ---------- New instance dialog ----------
-// A start page with three choices (custom setup, a Modrinth modpack, an .mrpack file), then the setup page for it.
+// A start page with three choices (custom setup, a Modrinth modpack, a modpack file), then the setup page for it.
 
 const NEW_STEPS = {
   home: { title: 'Create instance' },
@@ -1720,7 +1720,9 @@ function openNewDialog() {
   newDialog.creating = false;
   $('#upload-info').textContent = 'No file chosen yet.';
   $('#upload-info').classList.remove('chosen');
-  $('#upload-pick').textContent = 'Choose .mrpack file';
+  $('#upload-pick').textContent = 'Choose modpack file';
+  $('#upload-startup').hidden = true;
+  $('#upload-trust').checked = false;
   choosePack(null, null);
   showNewStep('home');
   $('#new-dialog').showModal();
@@ -1757,7 +1759,7 @@ function updateNewCreate() {
   const { step } = newDialog;
   const ready = step === 'custom'
     || (step === 'modpack' && Boolean(packSearch.chosen) && !$('#pack-version').disabled)
-    || (step === 'upload' && Boolean(newDialog.upload));
+    || (step === 'upload' && Boolean(newDialog.upload) && (!newDialog.upload.startup || newDialog.upload.startup.trusted || $('#upload-trust').checked));
   $('#new-create').disabled = newDialog.creating || !ready;
   if (step !== 'home') $('#new-name').placeholder = NEW_STEPS[step].placeholder();
 }
@@ -1840,22 +1842,56 @@ function packRow(hit) {
   return row;
 }
 
-async function pickModpackFile() {
+// Shows what a modpack file would install; get picks it (or takes a dropped one) and returns that. A pack that runs
+// its own code before the game says so, and installs once the player ticks that they trust it (or trusted its
+// server before).
+async function chooseModpackFile(get) {
   $('#new-error').textContent = '';
   try {
-    const info = await api.pickModpackFile();
+    const info = await get();
     if (!info) return; // cancelled
     newDialog.upload = info;
     const version = info.versionNumber ? ` ${info.versionNumber}` : '';
-    $('#upload-info').textContent = `${info.title}${version}\nMinecraft ${info.gameVersion} with Fabric, ${info.mods} mods`;
+    // A pack with startup code may fetch its mods when it starts: not having any in the file says nothing then.
+    const mods = info.mods === 1 ? ', 1 mod' : info.mods || !info.startup ? `, ${info.mods || 'no'} mods` : '';
+    $('#upload-info').textContent = [
+      `${info.title}${version}`,
+      info.description,
+      `Minecraft ${info.gameVersion}${info.loader ? ` with ${info.loader}` : ''}${mods}`,
+    ].filter(Boolean).join('\n');
     $('#upload-info').classList.add('chosen');
     $('#upload-pick').textContent = 'Choose another file';
+    const { startup } = info;
+    $('#upload-startup').hidden = !startup;
+    $('#upload-trust').checked = false;
+    if (startup) {
+      const names = startup.names.join(', ');
+      const from = startup.source ? ` It downloads from ${startup.source}.` : '';
+      $('#upload-startup-text').textContent = startup.trusted
+        ? `This pack runs its own code (${names}) each time the game starts.${from} You trusted packs from there before.`
+        : `This pack runs its own code (${names}) each time the game starts, before Minecraft. That code can download files and change this instance.${from} Only install it if you trust whoever made it.`;
+      $('#upload-trust-row').hidden = startup.trusted;
+    }
   } catch (err) {
     $('#new-error').textContent = errorText(err);
   } finally {
     updateNewCreate();
   }
 }
+
+// A modpack file dropped on the launcher opens Create instance on the upload page with it.
+function dropModpack(file) {
+  if (!$('#new-dialog').open) openNewDialog();
+  if (newDialog.creating) return;
+  showNewStep('upload');
+  chooseModpackFile(() => api.dropModpackFile(file));
+}
+const MODPACK_FILE = /\.(mrpack|zip)$/i;
+// The one modpack file in a drop, if that's what it is.
+const droppedModpack = (event) => {
+  const files = [...event.dataTransfer.files];
+  return files.length === 1 && MODPACK_FILE.test(files[0].name) ? files[0] : null;
+};
 
 // Makes the instance at once and switches to it; a modpack's files then download in the background.
 async function createInstance(event) {
@@ -1878,7 +1914,7 @@ async function createInstance(event) {
     } else {
       created = step === 'modpack'
         ? await api.installModpack(packSearch.chosen.projectId, name, $('#pack-version').value)
-        : await api.installModpackFile(name);
+        : await api.installModpackFile(name, $('#upload-trust').checked);
       state.tab = 'mods'; // watch the mods arrive
     }
     $('#new-dialog').close();
@@ -4010,6 +4046,7 @@ async function deleteSchematic() {
   renderSchematics();
 }
 
+// A single modpack file (.mrpack or .zip) dropped anywhere on the launcher opens Create instance with it.
 // Schematic files and folders of them dropped anywhere on the launcher go to the shared schematics folder (main.js
 // puts them there, a folder as a group): into the folder open in the Schematics view when that's showing, else at
 // the top; and the Schematics view opens with them. While a popup is open, it handles drops itself (the skin
@@ -4093,6 +4130,11 @@ async function importSchematics(dropped) {
     if (!draggingFiles(event)) return;
     event.preventDefault();
     end();
+    const pack = droppedModpack(event);
+    if (pack) {
+      dropModpack(pack);
+      return;
+    }
     // Folders can only be looked into while the drop is being handled: take hold of them now.
     const entries = [...event.dataTransfer.items].map((item) => item.webkitGetAsEntry?.()).filter(Boolean);
     droppedFiles(entries).then((dropped) => {
@@ -4311,7 +4353,21 @@ $('#new-snapshots').onchange = fillVersions;
 $('#new-cancel').onclick = () => (newDialog.step === 'home' ? $('#new-dialog').close() : showNewStep('home'));
 $('#new-form').onsubmit = createInstance;
 for (const choice of document.querySelectorAll('#new-home .choice')) choice.onclick = () => showNewStep(choice.dataset.step);
-$('#upload-pick').onclick = pickModpackFile;
+$('#upload-pick').onclick = () => chooseModpackFile(api.pickModpackFile);
+$('#upload-trust').onchange = updateNewCreate;
+// A modpack file dropped on Create instance goes to its upload page.
+$('#new-dialog').addEventListener('dragover', (event) => {
+  if (!event.dataTransfer?.types.includes('Files')) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+});
+$('#new-dialog').addEventListener('drop', (event) => {
+  if (!event.dataTransfer?.types.includes('Files')) return;
+  event.preventDefault();
+  const pack = droppedModpack(event);
+  if (pack) dropModpack(pack);
+  else $('#new-error').textContent = 'Drop one modpack file: a Modrinth .mrpack or a Prism Launcher export (.zip).';
+});
 $('#icon-search').oninput = () => renderIconGrid();
 $('#icon-close').onclick = () => $('#icon-dialog').close();
 $('#icon-random').onclick = () => {

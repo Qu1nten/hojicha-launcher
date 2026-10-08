@@ -502,22 +502,32 @@ function registerIpc() {
   handle('modpacks:search', (query, offset) => modrinth.searchModpacks(query, offset));
   handle('modpacks:gameVersions', (projectId) => modpacks.listGameVersions(projectId));
   handle('modpacks:install', async (projectId, name, versionId) => installPack(await modpacks.createInstance(projectId, name, versionId)));
-  // The file is chosen here and remembered, so the page can only install the file the player picked.
+  // The file is chosen here (or dropped on the window: the preload script gives the dropped file's path, which only a
+  // real dropped file has) and remembered, so the page can only install the file the player picked.
   let pickedPack = null;
+  const choosePack = (file) => {
+    const info = modpacks.describeFile(file);
+    pickedPack = file;
+    return info;
+  };
   handle('modpacks:pickFile', async () => {
     const result = await dialog.showOpenDialog(win, {
       title: 'Choose a modpack',
-      filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }],
+      filters: [{ name: 'Modrinth modpack or Prism Launcher export', extensions: ['mrpack', 'zip'] }],
       properties: ['openFile'],
     });
     if (result.canceled || !result.filePaths.length) return null;
-    const info = modpacks.describeFile(result.filePaths[0]);
-    pickedPack = result.filePaths[0];
-    return info;
+    return choosePack(result.filePaths[0]);
   });
-  handle('modpacks:installFile', async (name) => {
+  handle('modpacks:dropFile', (file) => {
+    if (typeof file !== 'string' || !/\.(mrpack|zip)$/i.test(file) || !fs.existsSync(file)) {
+      throw new Error("That file isn't a modpack. Drop a Modrinth .mrpack file or a Prism Launcher export (.zip).");
+    }
+    return choosePack(file);
+  });
+  handle('modpacks:installFile', async (name, trust) => {
     if (!pickedPack) throw new Error('Choose a modpack file first.');
-    return installPack(await modpacks.createInstanceFromFile(pickedPack, name));
+    return installPack(await modpacks.createInstanceFromFile(pickedPack, name, trust === true));
   });
 
   handle('servers:list', () => servers.list().map((s) => {

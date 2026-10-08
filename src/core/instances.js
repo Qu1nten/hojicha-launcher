@@ -13,6 +13,11 @@ function gameDir(id) {
   return path.join(dir(id), 'minecraft');
 }
 
+// Libraries a Prism Launcher pack brought along as files instead of downloads (see prismPacks.js).
+function librariesDir(id) {
+  return path.join(dir(id), 'libraries');
+}
+
 function get(id) {
   const file = path.join(dir(id), 'instance.json');
   if (!fs.existsSync(file)) throw new Error(`Instance "${id}" not found`);
@@ -77,4 +82,4 @@ function create({ name, gameVersion, loader, loaderVersion }) {
   return save(instance);
 }
 
-module.exports = { dir, gameDir, get, save, patch, list, create, folderName };
+module.exports = { dir, gameDir, librariesDir, get, save, patch, list, create, folderName };

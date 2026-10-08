@@ -1,13 +1,16 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const AdmZip = require('adm-zip');
 const instances = require('./instances');
 const minecraft = require('./minecraft');
+const prismPacks = require('./prismPacks');
 const { fetchJson, downloadFile, runPool } = require('./http');
 
 // A Modrinth modpack is an .mrpack: a zip with modrinth.index.json (game and loader versions, files to download)
 // plus overrides/ and client-overrides/ folders copied over the game directory. Installing one makes a new instance.
+// A file from the PC can also be a Prism Launcher (or MultiMC) instance export, read by prismPacks.js.
 
 const API = 'https://api.modrinth.com/v2';
 // The only hosts the .mrpack format lets packs download from.
@@ -57,12 +60,22 @@ function allowedUrl(urls) {
   });
 }
 
+const NOT_A_PACK = "That file isn't a modpack. Choose a Modrinth .mrpack file or a Prism Launcher export (.zip).";
+
 function openPack(file) {
   try {
     return new AdmZip(file);
   } catch {
-    throw new Error("That file isn't a modpack. Choose a Modrinth .mrpack file.");
+    throw new Error(NOT_A_PACK);
   }
+}
+
+// A pack file on the PC: a Modrinth .mrpack ({ index }) or a Prism Launcher export ({ prism }).
+function readFile(zip, fileName) {
+  if (zip.getEntry('modrinth.index.json')) return { index: readIndex(zip) };
+  const prism = prismPacks.read(zip, fileName);
+  if (!prism) throw new Error(NOT_A_PACK);
+  return { prism };
 }
 
 function readIndex(zip) {
@@ -114,26 +127,82 @@ async function createInstance(projectId, name = '', versionId = null) {
   return makeInstance(zip, name, { projectId, versionId: version.id, title: project.title, versionNumber: version.version_number, iconUrl: project.icon_url });
 }
 
-// What an .mrpack file on disk would install, for the dialog to show before creating anything.
+// What a modpack file on disk would install, for the dialog to show before creating anything. startup: the pack
+// runs its own code before the game (a Prism Launcher pack's custom components), which needs the player's trust.
 function describeFile(file) {
-  const index = readIndex(openPack(file));
+  const { index, prism } = readFile(openPack(file), file);
+  if (prism) {
+    const { title, description, gameVersion, loaderVersion, mods, startup } = prism;
+    return { title, description, versionNumber: '', gameVersion, loader: loaderVersion ? 'Fabric' : null, mods, startup: startup && { ...startup, trusted: prismPacks.isTrusted(startup) } };
+  }
   return {
     title: index.name || path.basename(file, path.extname(file)),
+    description: index.summary || '',
     versionNumber: index.versionId || '',
     gameVersion: index.dependencies.minecraft,
+    loader: 'Fabric',
     mods: (index.files || []).filter((f) => f.env?.client !== 'unsupported').length,
+    startup: null,
   };
 }
 
-function createInstanceFromFile(file, name = '') {
+// trust: the player said they trust the pack's startup code, if it has any.
+async function createInstanceFromFile(file, name = '', trust = false) {
   const zip = openPack(file);
-  const index = readIndex(zip);
+  const { index, prism } = readFile(zip, file);
+  if (prism) return makePrismInstance(zip, prism, name, trust);
   const title = index.name || path.basename(file, path.extname(file));
   return makeInstance(zip, name, { projectId: null, versionId: null, title, versionNumber: index.versionId || '', iconUrl: null });
 }
 
+async function makePrismInstance(zip, prism, name, trust) {
+  if (!prismPacks.isTrusted(prism.startup) && !trust) throw new Error('This pack runs its own code. Tick that you trust it to install it.');
+  const instance = instances.create({
+    name: name.trim() || prism.title,
+    gameVersion: prism.gameVersion,
+    loader: prism.loaderVersion ? 'fabric' : 'vanilla',
+    loaderVersion: prism.loaderVersion,
+  });
+  prismPacks.trust(prism.startup);
+  // As for Modrinth packs, its mod settings stay its own. So do its resource packs, shader packs, options and server
+  // list when it brings them, or runs code that may (a Supernova pack downloads its own servers.dat): the shared
+  // ones would mix in, or be overwritten.
+  instance.sync = { config: false };
+  const has = (rel) => zip.getEntries().some((e) => e.entryName.startsWith(prism.gamePrefix + rel));
+  for (const item of ['resourcepacks/', 'shaderpacks/', 'options.txt', 'servers.dat']) {
+    if (prism.startup || has(item)) instance.sync[item.replace('/', '')] = false;
+  }
+  if (prism.memoryMb) instance.memoryMb = prism.memoryMb;
+  if (prism.patches.length) instance.patches = prism.patches;
+  instance.modpack = { projectId: null, versionId: null, title: prism.title, versionNumber: '', iconUrl: null };
+  instances.save(instance);
+  return { instance, zip, prism };
+}
+
+// Copies a Prism Launcher pack's game folder and the libraries it brought along into the new instance.
+async function fillPrismInstance({ instance, zip, prism }, report) {
+  const gameDir = instances.gameDir(instance.id);
+  report('Copying modpack files');
+  const tracked = [];
+  for (const entry of zip.getEntries()) {
+    if (entry.isDirectory || !entry.entryName.startsWith(prism.gamePrefix)) continue;
+    const rel = entry.entryName.slice(prism.gamePrefix.length);
+    const target = safeTarget(gameDir, rel);
+    const data = entry.getData();
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, data);
+    if (TRACKED.some((dir) => rel.startsWith(dir))) tracked.push({ rel, sha1: crypto.createHash('sha1').update(data).digest('hex') });
+  }
+  const libraries = instances.librariesDir(instance.id);
+  fs.mkdirSync(libraries, { recursive: true });
+  for (const { entry, file } of prism.localJars) fs.writeFileSync(path.join(libraries, file), zip.getEntry(entry).getData());
+  await trackContent(instance, tracked);
+}
+
 // Downloads the pack's files and copies its overrides into the new instance.
-async function fillInstance({ instance, zip, index }, report) {
+async function fillInstance(pack, report) {
+  if (pack.prism) return fillPrismInstance(pack, report);
+  const { instance, zip, index } = pack;
   const gameDir = instances.gameDir(instance.id);
   const files = (index.files || []).filter((f) => f.env?.client !== 'unsupported');
   const downloads = files.map((f) => {

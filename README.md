@@ -17,6 +17,7 @@
 - **Instances** — vanilla or Fabric, any version, each with its own mods and worlds
 - **Installed** — mods, resource packs and shaders in one list; toggle or update in one click
 - **Modrinth** — browse and install mods, packs, shaders and modpacks
+- **Modpack files** — drop a Modrinth .mrpack or a Prism Launcher / MultiMC export (.zip) on the launcher to install it
 - **Syncing** — share worlds, settings and packs between instances
 - **Servers** — run a Paper, Purpur or Fabric server; friends join over the internet via [playit.gg](https://playit.gg) without port forwarding
 - **Skins and capes** — change your skin and cape with a 3D preview; saved skins carry across accounts

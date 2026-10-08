@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
 const paths = require('./paths');
+const instances = require('./instances');
 const { readJson, writeJson } = require('./util');
 const { LAUNCHER_VERSION, fetchJson, downloadFile, runPool } = require('./http');
 const { ensureJava } = require('./java');
@@ -75,12 +76,33 @@ function mergeVersions(parent, child) {
   };
 }
 
+// Applies an instance's custom components (from a Prism Launcher pack, see prismPacks.js) on top: another main
+// class, extra libraries (replacing any of the same name) and Java arguments. A library the pack brought along as a
+// file ("MMC-hint": "local") is read from the instance's own libraries folder.
+function applyPatches(version, instance) {
+  for (const patch of instance.patches || []) {
+    const libraries = patch.libraries.map((lib) => (lib['MMC-hint'] === 'local'
+      ? { ...lib, localPath: path.join(instances.librariesDir(instance.id), path.basename(mavenPath(lib.name))) }
+      : lib));
+    const keys = new Set(libraries.map((l) => libraryKey(l.name)));
+    version = {
+      ...version,
+      mainClass: patch.mainClass || version.mainClass,
+      libraries: [...libraries, ...version.libraries.filter((l) => !keys.has(libraryKey(l.name)))],
+      extraJvm: [...(version.extraJvm || []), ...patch.jvmArgs],
+    };
+  }
+  return version;
+}
+
 // Returns the full version JSON for an instance; jarId is the vanilla version whose client jar is used.
 async function resolveVersion(instance) {
   const vanilla = await getVanillaVersionJson(instance.gameVersion);
   vanilla.jarId = vanilla.id;
-  if (instance.loader !== 'fabric') return vanilla;
-  return mergeVersions(vanilla, await getFabricVersionJson(instance.gameVersion, instance.loaderVersion));
+  const version = instance.loader === 'fabric'
+    ? mergeVersions(vanilla, await getFabricVersionJson(instance.gameVersion, instance.loaderVersion))
+    : vanilla;
+  return applyPatches(version, instance);
 }
 
 // ---------- Rules & libraries ----------
@@ -141,6 +163,10 @@ function collectLibraries(version) {
   const natives = [];
   for (const lib of version.libraries) {
     if (!rulesAllow(lib.rules) || isForeignNative(lib.name)) continue;
+    if (lib.localPath) {
+      classpath.push({ path: lib.localPath, local: true }); // nothing to download
+      continue;
+    }
     const downloads = lib.downloads;
     if (downloads?.artifact) {
       const entry = toDownload(downloads.artifact, mavenPath(lib.name));
@@ -211,6 +237,8 @@ async function installGame(version, report) {
   await downloadFile(client.url, clientJar, { sha1: client.sha1, size: client.size });
 
   const { classpath, natives } = collectLibraries(version);
+  const missing = classpath.find((lib) => lib.local && !fs.existsSync(lib.path));
+  if (missing) throw new Error(`${path.basename(missing.path)} is missing from this instance's libraries folder. Install the modpack again.`);
   const unique = new Map();
   for (const lib of [...classpath, ...natives]) if (lib.url) unique.set(lib.path, lib);
   await runPool([...unique.values()], 8, (lib) => downloadFile(lib.url, lib.path, lib),
@@ -262,6 +290,7 @@ function buildArgs(version, install, gameDir, settings, account, options = {}) {
   const jvm = [`-Xmx${settings.memoryMb}M`];
   if (version.arguments?.jvm) jvm.push(...expand(version.arguments.jvm));
   else jvm.push(`-Djava.library.path=${install.nativesDir}`, '-cp', classpath);
+  if (version.extraJvm) jvm.push(...version.extraJvm.map(sub));
 
   const game = version.arguments?.game
     ? expand(version.arguments.game)
@@ -300,4 +329,4 @@ async function javaFor(gameVersion, report) {
   return ensureJava(version.javaVersion?.component || 'jre-legacy', (done, total) => report(`Preparing Java (${done} of ${total})`));
 }
 
-module.exports = { listGameVersions, latestFabricLoader, prepare, javaFor };
+module.exports = { listGameVersions, latestFabricLoader, prepare, javaFor, mavenPath };

@@ -9,7 +9,7 @@ const path = require('path');
 //   skins\       saved skins (skins.js)
 //   meta\        game versions, libraries, assets, Java runtimes, item icons, block models and schematic previews,
 //                shared by all instances
-//   config\      settings, accounts, servers, and Electron's own browser data
+//   config\      settings, accounts, servers, trusted modpack servers, and Electron's own browser data
 let root = null;
 
 const under = (...parts) => {
@@ -43,5 +43,6 @@ module.exports = {
   get serversFile() { return under('config', 'servers.json'); },
   get serverRestoreFile() { return under('config', 'server-properties-restore.json'); },
   get playitFile() { return under('config', 'playit.json'); },
+  get trustedPacksFile() { return under('config', 'trusted-packs.json'); },
   get electron() { return under('config', 'electron'); },
 };

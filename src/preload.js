@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
 
@@ -68,7 +68,8 @@ contextBridge.exposeInMainWorld('launcher', {
   modpackGameVersions: (projectId) => invoke('modpacks:gameVersions', projectId),
   installModpack: (projectId, name, versionId) => invoke('modpacks:install', projectId, name, versionId),
   pickModpackFile: () => invoke('modpacks:pickFile'),
-  installModpackFile: (name) => invoke('modpacks:installFile', name),
+  dropModpackFile: (file) => invoke('modpacks:dropFile', webUtils.getPathForFile(file)),
+  installModpackFile: (name, trust) => invoke('modpacks:installFile', name, trust),
   openExternal: (url) => invoke('openExternal', url),
 
   listServers: () => invoke('servers:list'),
