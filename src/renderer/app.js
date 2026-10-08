@@ -2006,7 +2006,7 @@ async function setIcon(name) {
 
 // The Settings page (gear in the sidebar) and each instance's Settings tab.
 let appInfo = { version: '', packaged: false, totalMemoryMb: 0 };
-let appSettings = { memoryMb: 4096, javaPath: '', theme: 'hojicha', borderless: false, protectAccount: true };
+let appSettings = { memoryMb: 4096, javaPath: '', theme: 'hojicha', borderless: false, protectAccount: true, sandbox: false };
 let updateMessage = ''; // the answer to the last "Check for updates"
 
 function openSettings() {
@@ -2049,6 +2049,7 @@ function renderAppSettings() {
   $('#java-pick').textContent = custom ? 'Choose another' : 'Choose java.exe';
   $('#borderless').checked = appSettings.borderless;
   $('#protect-account').checked = appSettings.protectAccount;
+  $('#sandbox').checked = appSettings.sandbox;
 
   $('#about-version').textContent = `Hojicha ${appInfo.version}`;
   renderUpdate();
@@ -4395,6 +4396,7 @@ $('#memory').onchange = () => saveAppSettings({ memoryMb: Number($('#memory').va
 $('#java-auto').onclick = () => saveAppSettings({ javaPath: '' });
 $('#borderless').onchange = () => saveAppSettings({ borderless: $('#borderless').checked });
 $('#protect-account').onchange = () => saveAppSettings({ protectAccount: $('#protect-account').checked });
+$('#sandbox').onchange = () => saveAppSettings({ sandbox: $('#sandbox').checked });
 $('#java-pick').onclick = async () => {
   showAppMessage('');
   try {

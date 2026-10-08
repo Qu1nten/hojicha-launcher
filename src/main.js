@@ -20,10 +20,12 @@ const accounts = require('./core/accounts');
 const storage = require('./core/storage');
 const borderless = require('./core/borderless');
 const authProxy = require('./core/authProxy');
+const sandbox = require('./core/sandbox');
 const skins = require('./core/skins');
 const schematics = require('./core/schematics');
 const blocks = require('./core/blocks');
 const store = require('./core/store');
+const screenshots = require('./core/screenshots');
 const { writeJson } = require('./core/util');
 const { redactor } = require('./core/redact');
 const { autoUpdater } = require('electron-updater');
@@ -203,11 +205,19 @@ async function launch(id, options = {}) {
     if (launchSettings.protectAccount && account.userType === 'msa') {
       proxy = await authProxy.start({ realToken: () => accounts.tokenFor(account.id), log: (text) => log(id, text) });
     }
-    const { java, args, protectedAccount } = await minecraft.prepare(instance, gameDir, launchSettings, account, report, { ...options, authProxy: proxy });
+    const sandboxed = launchSettings.sandbox && sandbox.supported;
+    const { java, args, protectedAccount } = await minecraft.prepare(instance, gameDir, launchSettings, account, report,
+      { ...options, authProxy: proxy, jvmArgs: sandboxed ? sandbox.jvmArgs(id) : null });
     if (proxy && !protectedAccount) {
       proxy.close();
       proxy = null;
       log(id, `> Account protection needs Minecraft 1.16 or newer, so ${instance.gameVersion} gets your account's real token.`);
+    }
+    // Before sync copies settings in: if the sandbox can't be set up, nothing is left half done.
+    let box = null;
+    if (sandboxed) {
+      report('Preparing the sandbox', 0.98);
+      box = await sandbox.ready(instance, java, (text) => log(id, text));
     }
     unpackIcons(); // a newer version may bring new items
     sync.beforeLaunch(instance);
@@ -215,11 +225,17 @@ async function launch(id, options = {}) {
 
     log(id, `> Launching ${instance.name} (${instance.gameVersion} ${instance.loader}) as ${account.name}`);
     if (proxy) log(id, "> Account protection is on: the game and its mods get a stand-in for your account's token.");
-    const child = spawn(java, args, { cwd: gameDir, windowsHide: true });
+    if (box) log(id, "> Sandbox is on: the game and its mods can only reach this instance's folder, the game's files and the internet.");
+    const child = box ? sandbox.start(box, instance, java, args) : spawn(java, args, { cwd: gameDir, windowsHide: true });
     running.set(id, child);
-    const windowHelper = launchSettings.borderless
-      ? borderless.watch(child.pid, fullscreenKey, (error) => log(id, `> Borderless window didn't work: ${error}`))
-      : null;
+    // The borderless helper needs the game's own process; in the sandbox that's not child, which is the sandbox's
+    // helper, and it says which one it started.
+    let windowHelper = null;
+    const watchWindow = (pid) => {
+      if (launchSettings.borderless) windowHelper = borderless.watch(pid, fullscreenKey, (error) => log(id, `> Borderless window didn't work: ${error}`));
+    };
+    if (!box) watchWindow(child.pid);
+    const screenshotWatcher = screenshots.watch(gameDir, (error) => log(id, `> Screenshots won't be copied to the clipboard: ${error}`));
     const started = Date.now();
     instances.save({ ...instances.get(id), lastPlayed: started });
     status(id, 'running', 'Playing', 1);
@@ -239,7 +255,19 @@ async function launch(id, options = {}) {
       }
     };
     readline.createInterface({ input: child.stdout }).on('line', onLine);
-    readline.createInterface({ input: child.stderr }).on('line', onLine);
+    // Until the sandbox's helper has started the game, its stderr is the helper's: the game's process id, an error,
+    // or PowerShell's own chatter, which the Log tab doesn't need.
+    let gameStarted = !box;
+    readline.createInterface({ input: child.stderr }).on('line', (line) => {
+      if (gameStarted) return onLine(line);
+      const pid = line.match(/^HOJICHA-SANDBOX-PID (\d+)/)?.[1];
+      if (pid) {
+        gameStarted = true;
+        watchWindow(Number(pid));
+      }
+      const error = line.match(/^HOJICHA-SANDBOX-ERROR (.*)/)?.[1];
+      if (error) log(id, `> The sandbox couldn't start the game: ${error}`);
+    });
 
     let finished = false;
     const finish = (message, failed = false) => {
@@ -247,6 +275,7 @@ async function launch(id, options = {}) {
       finished = true;
       running.delete(id);
       windowHelper?.kill(); // it also stops by itself when the game is gone
+      screenshotWatcher?.close();
       proxy?.close(); // the stand-in token stops working with it
       try {
         const current = instances.get(id);

@@ -264,6 +264,7 @@ function readsServiceHosts(version) {
 // account = { name, uuid, accessToken, userType } from accounts.launchIdentity().
 // options.join = "host:port" makes the game connect to that server straight after starting.
 // options.authProxy = a started core/authProxy.js; used when the version can talk to it (see readsServiceHosts).
+// options.jvmArgs = more Java options, after all the others so they win (core/sandbox.js).
 function buildArgs(version, install, gameDir, settings, account, options = {}) {
   const classpath = [...install.classpath, install.clientJar].join(path.delimiter);
   const proxy = options.authProxy && readsServiceHosts(version) ? options.authProxy : null;
@@ -303,6 +304,7 @@ function buildArgs(version, install, gameDir, settings, account, options = {}) {
   else jvm.push(`-Djava.library.path=${install.nativesDir}`, '-cp', classpath);
   if (version.extraJvm) jvm.push(...version.extraJvm.map(sub));
   if (proxy) jvm.push(...proxy.jvmArgs);
+  if (options.jvmArgs) jvm.push(...options.jvmArgs);
 
   const game = version.arguments?.game
     ? expand(version.arguments.game)

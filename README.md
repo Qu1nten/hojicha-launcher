@@ -25,6 +25,7 @@
 - **Two themes** — dark **Hojicha** and light **Matcha**
 - **Sign-in on Microsoft's website** — Hojicha never sees your password; tokens are stored encrypted on your PC
 - **Account protection** — from Minecraft 1.16, the game and its mods get a stand-in for your account's token, which only works through Hojicha while the game runs and can't change your name or skin, so a token copied from the game is useless (turn it off in Settings to use Realms)
+- **Sandbox (experimental, Windows)** — the game and its mods can only reach the instance's folder, the game's files and the internet: not your files, the launcher's sign-in, other instances or other programs. Windows asks for permission once; links and "open folder" buttons in the game stop working
 
 ## Install
 
