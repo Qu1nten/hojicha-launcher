@@ -5,15 +5,11 @@ const { readJsonOr, writeJson } = require('./util');
 const THEMES = ['hojicha', 'matcha']; // dark and light, see the switch in the title bar
 // borderless: play in a borderless window over the whole monitor instead of real fullscreen (core/borderless.js).
 // protectAccount: the game gets a stand-in for the account's token (core/authProxy.js).
-// sandbox: the game runs in a Windows AppContainer (core/sandbox.js).
-const DEFAULTS = { memoryMb: 4096, javaPath: '', theme: 'hojicha', borderless: false, protectAccount: true, sandbox: false };
+const DEFAULTS = { memoryMb: 4096, javaPath: '', theme: 'hojicha', borderless: false, protectAccount: true };
 
 function get() {
-  const { memoryMb, javaPath, theme, borderless, protectAccount, sandbox } = { ...DEFAULTS, ...readJsonOr(paths.settingsFile, {}) };
-  return {
-    memoryMb, javaPath, theme: THEMES.includes(theme) ? theme : DEFAULTS.theme,
-    borderless: borderless === true, protectAccount: protectAccount !== false, sandbox: sandbox === true,
-  };
+  const { memoryMb, javaPath, theme, borderless, protectAccount } = { ...DEFAULTS, ...readJsonOr(paths.settingsFile, {}) };
+  return { memoryMb, javaPath, theme: THEMES.includes(theme) ? theme : DEFAULTS.theme, borderless: borderless === true, protectAccount: protectAccount !== false };
 }
 
 function save(patch) {
@@ -22,7 +18,6 @@ function save(patch) {
   if (!THEMES.includes(settings.theme)) settings.theme = DEFAULTS.theme;
   settings.borderless = settings.borderless === true;
   settings.protectAccount = settings.protectAccount !== false;
-  settings.sandbox = settings.sandbox === true;
   writeJson(paths.settingsFile, settings);
   return settings;
 }
