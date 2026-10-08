@@ -9,12 +9,12 @@ document.body.classList.toggle('mac', IS_MAC);
 
 const SYNC_ITEMS = [
   ['saves', 'Worlds', 'Every world shows up in every instance. Opening one in a newer version upgrades it.'],
-  ['config', 'Mod settings', 'One shared config folder, so mod settings carry over.'],
+  ['config', 'Mod settings', 'Copied in when the game starts. The settings you change are saved when it closes.'],
   ['schematics', 'Schematics', 'Litematica, WorldEdit and Axiom save to one shared folder.'],
   ['resourcepacks', 'Resource packs', 'One shared resource pack folder.'],
   ['shaderpacks', 'Shader packs', 'One shared shader pack folder.'],
   ['screenshots', 'Screenshots', 'All screenshots end up in one folder.'],
-  ['options.txt', 'Options and keybinds', 'Copied in when the game starts and saved when it closes.'],
+  ['options.txt', 'Options and keybinds', 'Copied in when the game starts. The options you change are saved when it closes.'],
   ['servers.dat', 'Server list', 'Copied in when the game starts and saved when it closes.'],
 ];
 const MAX_LOG_LINES = 3000;

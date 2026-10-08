@@ -5,6 +5,7 @@ const path = require('path');
 //   servers\     servers created in the launcher (added server folders stay where they are)
 //   synced\      worlds, mod configs, resource packs, shader packs, screenshots, schematics and options shared
 //                between instances
+//   sync-history\ earlier versions of shared settings files, the last 20 of each (sync.js)
 //   skins\       saved skins (skins.js)
 //   meta\        game versions, libraries, assets, Java runtimes, item icons, block models and schematic previews,
 //                shared by all instances
@@ -25,6 +26,7 @@ module.exports = {
   get servers() { return under('servers'); },
   get synced() { return under('synced'); },
   get schematics() { return under('synced', 'schematics'); },
+  get syncHistory() { return under('sync-history'); },
   get skins() { return under('skins'); },
   get versions() { return under('meta', 'versions'); },
   get libraries() { return under('meta', 'libraries'); },

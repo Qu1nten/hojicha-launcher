@@ -191,8 +191,21 @@ async function launch(id, options = {}) {
     const started = Date.now();
     instances.save({ ...instances.get(id), lastPlayed: started });
     status(id, 'running', 'Playing', 1);
-    readline.createInterface({ input: child.stdout }).on('line', (line) => log(id, line));
-    readline.createInterface({ input: child.stderr }).on('line', (line) => log(id, line));
+    // Once the game has finished loading, what it and its mods did to the settings while starting isn't the
+    // player's (sync.js). The sound engine starts last; without a sound device the game says it's turning sound off.
+    let loaded = false;
+    const onLine = (line) => {
+      log(id, line);
+      if (loaded || !/Sound engine started|Error starting SoundSystem/.test(line)) return;
+      loaded = true;
+      try {
+        sync.markLoaded(instance);
+      } catch (err) {
+        log(id, `> Could not note the settings the game loaded with: ${err.message}`);
+      }
+    };
+    readline.createInterface({ input: child.stdout }).on('line', onLine);
+    readline.createInterface({ input: child.stderr }).on('line', onLine);
 
     let finished = false;
     const finish = (message, failed = false) => {
@@ -207,7 +220,7 @@ async function launch(id, options = {}) {
         log(id, `> Could not save play time: ${err.message}`);
       }
       try {
-        sync.afterExit(instances.get(id));
+        if (!sync.afterExit(instances.get(id))) log(id, "> Settings weren't saved: the game closed before it finished loading.");
       } catch (err) {
         message = `Sync failed: ${err.message}`;
         failed = true;
