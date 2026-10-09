@@ -15,7 +15,7 @@
 ## Features
 
 - **Instances** — vanilla or Fabric, any version, each with its own mods and worlds
-- **Installed** — mods, resource packs and shaders in one list; toggle or update in one click
+- **Installed** — mods, resource packs and shaders in one list; toggle or update in one click, or drop .jar files on an instance to add them
 - **Modrinth** — browse and install mods, packs, shaders and modpacks
 - **Modpack files** — drop a Modrinth .mrpack or a Prism Launcher / MultiMC export (.zip) on the launcher to install it
 - **Syncing** — share worlds, settings and packs between instances
