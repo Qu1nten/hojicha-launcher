@@ -48,7 +48,15 @@ function list() {
         return [];
       }
     })
-    .sort((a, b) => a.created - b.created);
+    // Dragged into place in the sidebar (see reorder()); new instances have no order yet and go to the bottom.
+    .sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || a.created - b.created);
+}
+
+// Saves the sidebar order: ids, top to bottom.
+function reorder(ids) {
+  ids.forEach((id, order) => {
+    if (get(id).order !== order) patch(id, { order });
+  });
 }
 
 // The instance's folder (and id) is its name, minus what Windows doesn't allow in folder names.
@@ -82,4 +90,4 @@ function create({ name, gameVersion, loader, loaderVersion }) {
   return save(instance);
 }
 
-module.exports = { dir, gameDir, librariesDir, get, save, patch, list, create, folderName };
+module.exports = { dir, gameDir, librariesDir, get, save, patch, list, reorder, create, folderName };

@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('launcher', {
 
   listInstances: () => invoke('instances:list'),
   createInstance: (options) => invoke('instances:create', options),
+  reorderInstances: (ids) => invoke('instances:reorder', ids),
   deleteInstance: (id) => invoke('instances:delete', id),
   openFolder: (id) => invoke('instances:openFolder', id),
   setSync: (id, item, enabled) => invoke('instances:setSync', id, item, enabled),
@@ -73,6 +74,7 @@ contextBridge.exposeInMainWorld('launcher', {
   openExternal: (url) => invoke('openExternal', url),
 
   listServers: () => invoke('servers:list'),
+  reorderServers: (ids) => invoke('servers:reorder', ids),
   addServer: () => invoke('servers:add'),
   listServerVersions: (type) => invoke('servers:versions', type),
   serverOnline: (id) => invoke('servers:online', id),

@@ -145,7 +145,7 @@ function itemIcon(kind, thing) {
     className: 'item-icon',
     title: 'Change icon',
     ariaLabel: `Change the icon of ${thing.name}`,
-  }, [thing.iconUrl ? el('img', { src: thing.iconUrl, alt: '' }) : icon('block')]);
+  }, [thing.iconUrl ? el('img', { src: thing.iconUrl, alt: '', draggable: false }) : icon('block')]);
   button.onclick = () => {
     // A mouse click (detail > 0) lets go of focus first, so closing the picker doesn't hand focus back and ring
     // the icon. From the keyboard, focus comes back as usual.
@@ -169,25 +169,121 @@ function sideRow(kind, thing, active, sub, running, open) {
   return row;
 }
 
+// Dragging an instance or server up or down its sidebar list puts it there. While one is dragged that list stays as
+// it is (a status update would otherwise rebuild the rows under the pointer and end the drag); it's redrawn after.
+const sidebarDrag = { kind: null, id: null };
+const sidebarLists = {
+  instance: {
+    list: '#instance-list',
+    items: () => state.instances,
+    set: (items) => { state.instances = items; },
+    save: (ids) => api.reorderInstances(ids),
+    refresh: () => refreshInstances(),
+  },
+  server: {
+    list: '#server-list',
+    items: () => state.servers,
+    set: (items) => { state.servers = items; },
+    save: (ids) => api.reorderServers(ids),
+    refresh: () => refreshServers(),
+  },
+};
+
+function draggableRow(row, kind, thing) {
+  row.draggable = true;
+  row.addEventListener('dragstart', (event) => {
+    Object.assign(sidebarDrag, { kind, id: thing.id });
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(`application/x-hojicha-${kind}`, thing.id);
+    row.classList.add('dragging');
+  });
+  row.addEventListener('dragend', () => {
+    Object.assign(sidebarDrag, { kind: null, id: null });
+    renderSidebar();
+  });
+}
+
+// Where a drop at this height lands: the id of the row it goes in front of, or null for the bottom.
+function dropBefore(kind, y) {
+  const rows = [...$(sidebarLists[kind].list).children];
+  const below = rows.find((row) => {
+    const box = row.getBoundingClientRect();
+    return y < box.top + box.height / 2;
+  });
+  return below ? below.dataset.key.slice(`${kind}:`.length) : null;
+}
+
+// Draws the line where the drop lands (before: as from dropBefore(); undefined for no line).
+function showDrop(kind, before) {
+  const rows = [...$(sidebarLists[kind].list).children];
+  for (const row of rows) row.classList.remove('drop-before', 'drop-after');
+  if (before === null) rows.at(-1)?.classList.add('drop-after');
+  else rows.find((row) => row.dataset.key === `${kind}:${before}`)?.classList.add('drop-before');
+}
+
+for (const [kind, { list: selector, items, set, save, refresh }] of Object.entries(sidebarLists)) {
+  const list = $(selector);
+  // Only rows from this list: an instance can't be dropped among the servers.
+  const ours = () => sidebarDrag.kind === kind;
+  list.addEventListener('dragover', (event) => {
+    if (!ours()) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    showDrop(kind, dropBefore(kind, event.clientY));
+  });
+  list.addEventListener('dragleave', (event) => {
+    if (ours() && !list.contains(event.relatedTarget)) showDrop(kind, undefined);
+  });
+  list.addEventListener('drop', (event) => {
+    if (!ours()) return;
+    event.preventDefault();
+    const moving = items().find((thing) => thing.id === sidebarDrag.id);
+    const before = dropBefore(kind, event.clientY);
+    Object.assign(sidebarDrag, { kind: null, id: null });
+    if (!moving || before === moving.id) return renderSidebar();
+    const rest = items().filter((thing) => thing !== moving);
+    const at = before === null ? rest.length : rest.findIndex((thing) => thing.id === before);
+    rest.splice(at, 0, moving);
+    set(rest);
+    renderSidebar();
+    save(rest.map((thing) => thing.id)).catch((err) => {
+      console.error(`Could not save the ${kind} order:`, err);
+      refresh();
+    });
+  });
+}
+
 function renderSidebar() {
   // The rows are rebuilt; keep keyboard focus on the same row and button (opening a row redraws the list).
   const focused = document.activeElement?.closest?.('#sidebar li[data-key]');
   const focusKey = focused?.dataset.key;
   const focusClass = document.activeElement?.classList.contains('item-icon') ? 'item-icon' : 'side-select';
-  $('#instance-list').replaceChildren(...state.instances.map((inst) => sideRow(
-    'instance', inst,
-    state.view === 'instance' && inst.id === state.selected,
-    loaderLabel(inst),
-    state.status[inst.id]?.state === 'running' ? 'Playing' : '',
-    () => selectInstance(inst.id),
-  )));
-  $('#server-list').replaceChildren(...state.servers.map((server) => sideRow(
-    'server', server,
-    state.view === 'server' && server.id === state.selectedServer,
-    `${serverFlavor(server)} ${server.mcVersion}`,
-    ['starting', 'running', 'stopping'].includes(state.serverStatus[server.id]?.state) ? 'Running' : '',
-    () => selectServer(server.id),
-  )));
+  if (sidebarDrag.kind !== 'instance') {
+    $('#instance-list').replaceChildren(...state.instances.map((inst) => {
+      const row = sideRow(
+        'instance', inst,
+        state.view === 'instance' && inst.id === state.selected,
+        loaderLabel(inst),
+        state.status[inst.id]?.state === 'running' ? 'Playing' : '',
+        () => selectInstance(inst.id),
+      );
+      draggableRow(row, 'instance', inst);
+      return row;
+    }));
+  }
+  if (sidebarDrag.kind !== 'server') {
+    $('#server-list').replaceChildren(...state.servers.map((server) => {
+      const row = sideRow(
+        'server', server,
+        state.view === 'server' && server.id === state.selectedServer,
+        `${serverFlavor(server)} ${server.mcVersion}`,
+        ['starting', 'running', 'stopping'].includes(state.serverStatus[server.id]?.state) ? 'Running' : '',
+        () => selectServer(server.id),
+      );
+      draggableRow(row, 'server', server);
+      return row;
+    }));
+  }
   if (focusKey) {
     [...document.querySelectorAll('#sidebar li[data-key]')].find((li) => li.dataset.key === focusKey)?.querySelector(`.${focusClass}`)?.focus();
   }

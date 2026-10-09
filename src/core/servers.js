@@ -41,6 +41,13 @@ function saveAll(servers) {
   writeJson(file(), servers);
 }
 
+// Saves the sidebar order: ids, top to bottom. Servers not in ids (none, normally) keep their place at the end.
+function reorder(ids) {
+  const servers = list();
+  const at = (s) => (ids.includes(s.id) ? ids.indexOf(s.id) : Infinity);
+  saveAll(servers.sort((a, b) => at(a) - at(b)));
+}
+
 function get(id) {
   const server = list().find((s) => s.id === id);
   if (!server) throw new Error('Server not found');
@@ -386,7 +393,7 @@ function stopAll() {
 }
 
 module.exports = {
-  setHooks, list, get, add, create, remove, update, setPublic, addToWhitelist, removeFromWhitelist,
+  setHooks, list, reorder, get, add, create, remove, update, setPublic, addToWhitelist, removeFromWhitelist,
   start, stop, stopAll, command, isRunning, address, restoreAllPending,
   port: (id) => readPort(get(id).dir),
 };

@@ -485,6 +485,7 @@ function registerIpc() {
     if (!icons.has(name)) throw new Error('Unknown icon');
     return instances.save({ ...instances.get(id), icon: name });
   });
+  handle('instances:reorder', (ids) => instances.reorder(ids));
   handle('instances:create', async ({ name, gameVersion, loader }) => {
     const loaderVersion = loader === 'fabric' ? await minecraft.latestFabricLoader(gameVersion) : null;
     const instance = instances.create({ name: name.trim() || gameVersion, gameVersion, loader, loaderVersion });
@@ -590,6 +591,7 @@ function registerIpc() {
     const icon = iconFor(s, (name) => servers.update(s.id, (server) => { server.icon = name; }));
     return { ...s, icon, iconUrl: icons.url(icon), running: servers.isRunning(s.id) };
   }));
+  handle('servers:reorder', (ids) => servers.reorder(ids));
   handle('servers:setIcon', (id, name) => {
     if (!icons.has(name)) throw new Error('Unknown icon');
     return servers.update(id, (server) => { server.icon = name; });

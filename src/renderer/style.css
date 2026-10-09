@@ -398,6 +398,20 @@ input:focus-visible, select:focus-visible { outline: none; }
 .side-list li:hover { background: var(--kiln-raised); }
 /* The selected item takes the main area's colour, so it reads as connected to it. */
 .side-list li.active { background: var(--roast); }
+/* Dragging an instance to another place: the row being moved fades, a line shows where it goes. */
+.side-list li.dragging { opacity: 0.4; }
+.side-list li.drop-before::after, .side-list li.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--liquor);
+  pointer-events: none;
+}
+.side-list li.drop-before::after { top: -1px; }
+.side-list li.drop-after::after { bottom: -1px; }
 /* The name is a button that covers the whole row (its ::before), under the item icon. */
 .side-select {
   flex: 1;
