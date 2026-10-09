@@ -506,7 +506,15 @@ function registerIpc() {
   });
   handle('instances:launch', launch);
 
-  handle('content:list', (id) => modrinth.listContent(id));
+  // Files added by hand are looked up afterwards, and the list is shown again once they have names and icons.
+  handle('content:list', (id) => {
+    const content = modrinth.listContent(id);
+    modrinth.identify(id).then(
+      (found) => { if (found) send('content-changed', id); },
+      (err) => console.error('Could not identify the files added by hand:', err.message),
+    );
+    return content;
+  });
   handle('content:watch', (id) => modrinth.watchContent(id ? instances.get(id).id : null, (changed) => send('content-changed', changed)));
   // Mod files dropped on the window: the preload script gives their paths, which only real dropped files have.
   handle('mods:addFiles', (id, files) => {

@@ -6,6 +6,7 @@ const sync = require('./sync');
 const store = require('./store');
 const { readJsonOr, writeJson } = require('./util');
 const { fetchJson, hashFile } = require('./http');
+const { readLocalInfo } = require('./localinfo');
 
 const API = 'https://api.modrinth.com/v2';
 
@@ -242,35 +243,146 @@ function listContent(id) {
   const instance = loadInstance(id);
   const gameDir = instances.gameDir(id);
   const known = records(instance);
-  const entries = (folder, isItem) => {
-    const dir = path.join(gameDir, folder);
-    if (!fs.existsSync(dir)) return [];
-    return fs.readdirSync(dir, { withFileTypes: true }).filter(isItem).map((entry) => entry.name);
-  };
   const item = (folder, file, title) => {
     const meta = known[`${folder}/${file}`];
+    const own = meta ? null : ownInfo.get(fileKey(path.join(gameDir, folder, file)));
     return {
       file,
-      title: meta?.title || title,
-      versionNumber: meta?.versionNumber || '',
-      iconUrl: meta?.iconUrl || null,
-      fromModrinth: Boolean(meta),
+      title: meta?.title || own?.title || title,
+      versionNumber: meta?.versionNumber || own?.versionNumber || '',
+      iconUrl: meta?.iconUrl || own?.iconUrl || null,
+      fromModrinth: Boolean(meta), // only Modrinth ones can switch versions
     };
   };
   const byTitle = (a, b) => a.title.localeCompare(b.title);
-  const packs = (folder) => entries(folder, (e) => e.isDirectory() || /\.zip$/i.test(e.name))
+  const packs = (folder) => contentFiles(gameDir, folder)
     .map((file) => ({ ...item(folder, file, file.replace(/\.zip$/i, '')), shared: isShared(instance, folder) }))
     .sort(byTitle);
   return {
-    mod: entries(FOLDERS.mod, (e) => e.isFile() && /\.jar(\.disabled)?$/i.test(e.name))
+    mod: contentFiles(gameDir, FOLDERS.mod)
       .map((file) => ({
-        ...item(FOLDERS.mod, file, file.replace(/\.jar(\.disabled)?$/i, '')), // only Modrinth ones can switch versions
+        ...item(FOLDERS.mod, file, file.replace(/\.jar(\.disabled)?$/i, '')),
         enabled: !/\.disabled$/i.test(file),
       }))
       .sort(byTitle),
     resourcepack: packs(FOLDERS.resourcepack),
     shader: packs(FOLDERS.shader),
   };
+}
+
+// The names of the mods (.jar, or .jar.disabled when switched off) or packs (.zip or a folder) in one of the folders.
+function contentFiles(gameDir, folder) {
+  const dir = path.join(gameDir, folder);
+  if (!fs.existsSync(dir)) return [];
+  const isItem = folder === FOLDERS.mod
+    ? (e) => e.isFile() && /\.jar(\.disabled)?$/i.test(e.name)
+    : (e) => e.isDirectory() || /\.zip$/i.test(e.name);
+  return fs.readdirSync(dir, { withFileTypes: true }).filter(isItem).map((entry) => entry.name);
+}
+
+// Files added by hand (copied in, dropped on the window, or left by an older launcher) have no record. They're looked
+// up on Modrinth by their hash, and the ones it knows get a record as if installed from there: name, icon, version
+// switching and updates. The rest show what they say about themselves (localinfo.js), kept here by fileKey.
+const ownInfo = new Map();
+// A changed file (same name, new contents) is looked at again.
+function fileKey(file) {
+  const stat = fs.statSync(file, { throwIfNoEntry: false });
+  return stat ? `${file}|${stat.size}|${stat.mtimeMs}` : file;
+}
+
+// Hashes Modrinth didn't know -> when it was asked, so they aren't asked about every time. Asked again after a week,
+// in case the file was uploaded since.
+const ASK_AGAIN = 7 * 24 * 60 * 60 * 1000;
+
+const identifying = new Map(); // instance id -> the running lookup
+// Looks up the instance's files that have no details yet. True if it found something, so the list should be shown
+// again. Only cosmetic: offline, the files show what they say about themselves.
+function identify(id) {
+  if (!identifying.has(id)) {
+    const run = identifyNow(id).finally(() => identifying.delete(id));
+    identifying.set(id, run);
+  }
+  return identifying.get(id);
+}
+
+async function identifyNow(id) {
+  const gameDir = instances.gameDir(id);
+  const known = records(loadInstance(id));
+  const fresh = [];
+  for (const folder of Object.values(FOLDERS)) {
+    for (const file of contentFiles(gameDir, folder)) {
+      const rel = `${folder}/${file}`;
+      const full = path.join(gameDir, rel);
+      const key = fileKey(full);
+      if (!known[rel] && !ownInfo.has(key)) fresh.push({ rel, full, key });
+    }
+  }
+  if (!fresh.length) return false;
+
+  // Unpacked packs have no single file to hash, so only what they say about themselves.
+  const unknown = readJsonOr(paths.unknownFilesFile, {});
+  const ask = [];
+  for (const entry of fresh) {
+    if (fs.statSync(entry.full).isDirectory()) {
+      ownInfo.set(entry.key, readLocalInfo(entry.full));
+      continue;
+    }
+    entry.sha1 = await hashFile(entry.full, 'sha1');
+    if (Date.now() - (unknown[entry.sha1] || 0) < ASK_AGAIN) ownInfo.set(entry.key, readLocalInfo(entry.full));
+    else ask.push(entry);
+  }
+  if (!ask.length) return true;
+
+  let found = null;
+  try {
+    found = await lookUpHashes(ask.map((entry) => entry.sha1));
+  } catch (err) {
+    console.error('Could not look up files added by hand on Modrinth:', err.message);
+  }
+  const matched = [];
+  for (const entry of ask) {
+    const meta = found?.get(entry.sha1);
+    if (meta) {
+      matched.push([entry.rel, meta]);
+      continue;
+    }
+    ownInfo.set(entry.key, readLocalInfo(entry.full));
+    if (found) unknown[entry.sha1] = Date.now(); // offline isn't an answer: ask next time the launcher starts
+  }
+  if (found) writeJson(paths.unknownFilesFile, unknown);
+  if (matched.length) {
+    await exclusive(id, () => {
+      const instance = loadInstance(id);
+      const now = records(instance);
+      for (const [rel, meta] of matched) {
+        if (!now[rel] && fs.existsSync(path.join(gameDir, rel))) instance.content[rel] = meta;
+      }
+      saveContent(instance);
+      settle(instance); // a pack in a shared folder keeps its details with the folder
+    });
+  }
+  return true;
+}
+
+// sha1 -> the record an install from Modrinth would make, for the hashes Modrinth knows.
+async function lookUpHashes(hashes) {
+  const versions = await fetchJson(`${API}/version_files`, { hashes, algorithm: 'sha1' });
+  const projectIds = [...new Set(Object.values(versions).map((v) => v.project_id))];
+  const projects = projectIds.length ? await fetchJson(`${API}/projects?${new URLSearchParams({ ids: JSON.stringify(projectIds) })}`) : [];
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const found = new Map();
+  for (const [hash, version] of Object.entries(versions)) {
+    const project = byId.get(version.project_id);
+    if (!project) continue;
+    found.set(hash, {
+      projectId: version.project_id,
+      versionId: version.id,
+      title: project.title,
+      versionNumber: version.version_number,
+      iconUrl: project.icon_url || null,
+    });
+  }
+  return found;
 }
 
 // Is the pack shared with other instances (so removing it removes it there too)?
@@ -470,5 +582,5 @@ function watchContent(id, onChange) {
 
 module.exports = {
   FOLDERS, exclusive, isWorking, settleAll, search, searchModpacks, install, listContent, isSharedContent, setModEnabled, checkModUpdates,
-  removeContent, listModVersions, setModVersion, addModFiles, watchContent,
+  removeContent, listModVersions, setModVersion, addModFiles, watchContent, identify, lookUpHashes,
 };

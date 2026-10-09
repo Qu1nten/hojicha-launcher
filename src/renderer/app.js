@@ -986,7 +986,12 @@ function modRow(inst, mod, update) {
     });
     version.onclick = () => openVersionPicker(inst, mod);
   } else {
-    version = el('span', { className: 'version', textContent: 'Added by hand' });
+    // The version the mod file names, if it does.
+    version = el('span', {
+      className: 'version',
+      textContent: mod.versionNumber ? shortVersion(mod.versionNumber, inst) : 'Added by hand',
+      title: mod.versionNumber ? `Version ${mod.versionNumber}, added by hand` : '',
+    });
   }
 
   let updateButton = null;

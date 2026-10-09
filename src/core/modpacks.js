@@ -5,6 +5,7 @@ const path = require('path');
 const AdmZip = require('adm-zip');
 const instances = require('./instances');
 const minecraft = require('./minecraft');
+const modrinth = require('./modrinth');
 const prismPacks = require('./prismPacks');
 const store = require('./store');
 const { fetchJson, downloadFile, runPool } = require('./http');
@@ -249,21 +250,9 @@ async function fillInstance(pack, report) {
 async function trackContent(instance, files) {
   if (!files.length) return;
   try {
-    const versions = await fetchJson(`${API}/version_files`, { hashes: files.map((f) => f.sha1), algorithm: 'sha1' });
-    const projectIds = [...new Set(Object.values(versions).map((v) => v.project_id))];
-    const projects = projectIds.length ? await fetchJson(`${API}/projects?${new URLSearchParams({ ids: JSON.stringify(projectIds) })}`) : [];
-    const byId = new Map(projects.map((p) => [p.id, p]));
+    const found = await modrinth.lookUpHashes(files.map((f) => f.sha1));
     for (const file of files) {
-      const version = versions[file.sha1];
-      if (!version) continue;
-      const project = byId.get(version.project_id);
-      instance.content[file.rel] = {
-        projectId: version.project_id,
-        versionId: version.id,
-        title: project?.title || path.basename(file.rel),
-        versionNumber: version.version_number,
-        iconUrl: project?.icon_url || null,
-      };
+      if (found.has(file.sha1)) instance.content[file.rel] = found.get(file.sha1);
     }
     instances.patch(instance.id, { content: instance.content }); // a rename meanwhile stays
   } catch (err) {
