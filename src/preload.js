@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld('launcher', {
   launch: (id) => invoke('instances:launch', id),
 
   listContent: (id) => invoke('content:list', id),
+  watchContent: (id) => invoke('content:watch', id),
+  onContentChanged: (callback) => ipcRenderer.on('content-changed', (_event, id) => callback(id)),
+  addModFiles: (id, files) => invoke('mods:addFiles', id, files.map((file) => webUtils.getPathForFile(file))),
   removeContent: (id, type, file) => invoke('content:remove', id, type, file),
   setModEnabled: (id, file, enabled) => invoke('mods:setEnabled', id, file, enabled),
   checkModUpdates: (id) => invoke('mods:updates', id),

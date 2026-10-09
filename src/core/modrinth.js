@@ -389,7 +389,86 @@ function removeNow(id, type, file) {
   saveContent(instance);
 }
 
+// Copies mod files dropped on the launcher into the instance's mods folder. A file whose name is already there (on
+// or switched off) is left out. Returns { added, skipped } as file names.
+function addModFiles(id, files) {
+  return exclusive(id, () => {
+    const instance = loadInstance(id);
+    if (instance.loader === 'vanilla') throw new Error("This instance has no mod loader, so it can't use mods. Create a Fabric instance to add mods.");
+    const modsDir = path.join(instances.gameDir(id), FOLDERS.mod);
+    fs.mkdirSync(modsDir, { recursive: true });
+    const result = { added: [], skipped: [] };
+    for (const file of files) {
+      const name = path.basename(file);
+      const there = fs.existsSync(path.join(modsDir, name)) || fs.existsSync(path.join(modsDir, `${name}.disabled`));
+      if (there || path.dirname(path.resolve(file)) === path.resolve(modsDir)) {
+        result.skipped.push(name);
+        continue;
+      }
+      fs.copyFileSync(file, path.join(modsDir, name), fs.constants.COPYFILE_EXCL);
+      result.added.push(name);
+    }
+    return result;
+  });
+}
+
+// Lets the page know when the files in an instance's mods, resource packs or shaders change, from the launcher or
+// by hand in Explorer. One instance at a time: the one whose Installed tab was shown last. The pack folders are
+// usually junctions into synced\ (sync.js), so each is watched where it points; the game folder is watched too, to
+// notice one of them being made (or replaced by a junction) and watch it from then on.
+let contentWatch = null;
+function watchContent(id, onChange) {
+  if (contentWatch?.id === id) return;
+  contentWatch?.close();
+  contentWatch = null;
+  if (!id) return;
+  const gameDir = instances.gameDir(id);
+  const names = Object.values(FOLDERS);
+  let watchers = [];
+  let timer = null;
+  const changed = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => onChange(id), 300); // a copy or an install is many events
+  };
+  const watchOne = (dir, listener) => {
+    try {
+      const watcher = fs.watch(dir, listener);
+      watcher.on('error', () => {}); // the folder went away: the game folder's watch notices
+      watchers.push(watcher);
+    } catch {
+      // not there (yet)
+    }
+  };
+  const rewatch = () => {
+    for (const watcher of watchers) watcher.close();
+    watchers = [];
+    // The game folder hears about everything in it (logs, saves): only the content folders matter.
+    watchOne(gameDir, (_event, name) => {
+      if (!names.includes(name)) return;
+      rewatch();
+      changed();
+    });
+    for (const name of names) {
+      let dir;
+      try {
+        dir = fs.realpathSync(path.join(gameDir, name));
+      } catch {
+        continue; // not there (yet)
+      }
+      watchOne(dir, changed);
+    }
+  };
+  rewatch();
+  contentWatch = {
+    id,
+    close: () => {
+      clearTimeout(timer);
+      for (const watcher of watchers) watcher.close();
+    },
+  };
+}
+
 module.exports = {
   FOLDERS, exclusive, isWorking, settleAll, search, searchModpacks, install, listContent, isSharedContent, setModEnabled, checkModUpdates,
-  removeContent, listModVersions, setModVersion,
+  removeContent, listModVersions, setModVersion, addModFiles, watchContent,
 };

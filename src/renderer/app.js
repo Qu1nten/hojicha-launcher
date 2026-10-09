@@ -565,6 +565,40 @@ function modsChanged(id) {
   delete state.modUpdates[id];
 }
 
+// Files in the mods, resource packs or shaders folder changed, by the launcher or by hand.
+api.onContentChanged((id) => {
+  modsChanged(id);
+  if (state.view === 'instance' && current()?.id === id && state.tab === 'mods') loadMods();
+});
+
+// Mod files dropped on an open instance go into its mods folder, and the Installed tab shows them.
+const MOD_FILE = /\.jar$/i;
+const droppedMods = (event) => {
+  const files = [...event.dataTransfer.files];
+  return state.view === 'instance' && current() && files.length && files.every((file) => MOD_FILE.test(file.name)) ? files : null;
+};
+
+async function addDroppedMods(files) {
+  const inst = current();
+  if (state.tab !== 'mods') showTab('mods');
+  if (state.mods.view !== 'all') state.mods.view = 'mod'; // not hidden behind Resource packs or Shaders
+  let text;
+  try {
+    const { added, skipped } = await api.addModFiles(inst.id, files);
+    text = [
+      added.length ? `Added ${added.length === 1 ? added[0] : plural(added.length, 'mod', 'mods')}.` : '',
+      skipped.length ? `${listNames(skipped)} ${skipped.length === 1 ? 'is' : 'are'} already in this instance.` : '',
+    ].filter(Boolean).join(' ');
+    state.status[inst.id] = { state: 'idle', text };
+  } catch (err) {
+    state.status[inst.id] = { state: 'error', text: errorText(err) };
+  }
+  modsChanged(inst.id);
+  if (current()?.id !== inst.id) return;
+  renderStatus();
+  loadMods();
+}
+
 // Forget the previous instance's results; the Browse tab loads fresh ones the next time it is shown.
 function resetSearch() {
   state.search = { query: '', type: $('#search-type').value, offset: 0, total: 0, done: false };
@@ -786,6 +820,7 @@ async function loadMods() {
     state.mods = { ...state.mods, id: inst.id, content: { mod: [], resourcepack: [], shader: [] }, filter: '', busy: isBusy(inst.id) };
     $('#mod-filter').value = '';
   }
+  api.watchContent(inst.id); // files added or removed by hand show up too
   const content = await api.listContent(inst.id);
   if (current()?.id !== inst.id) return; // another instance was picked meanwhile
   state.mods.content = content;
@@ -4213,7 +4248,13 @@ async function importSchematics(dropped) {
   window.addEventListener('dragenter', (event) => {
     if (!draggingFiles(event)) return;
     event.preventDefault();
-    depth++;
+    // What the files are isn't known until they're dropped: say what an open instance takes too.
+    if (!depth++) {
+      const inst = state.view === 'instance' ? current() : null;
+      $('#app-drop span').textContent = inst && inst.loader !== 'vanilla'
+        ? `Drop mods to add them to ${inst.name}, schematics to add them, or a modpack to install it`
+        : 'Drop schematics to add them, or a modpack to install it';
+    }
     document.body.classList.add('dropping-files');
   });
   window.addEventListener('dragover', (event) => {
@@ -4229,6 +4270,11 @@ async function importSchematics(dropped) {
     if (!draggingFiles(event)) return;
     event.preventDefault();
     end();
+    const mods = droppedMods(event);
+    if (mods) {
+      addDroppedMods(mods);
+      return;
+    }
     const pack = droppedModpack(event);
     if (pack) {
       dropModpack(pack);

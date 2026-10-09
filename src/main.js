@@ -507,6 +507,14 @@ function registerIpc() {
   handle('instances:launch', launch);
 
   handle('content:list', (id) => modrinth.listContent(id));
+  handle('content:watch', (id) => modrinth.watchContent(id ? instances.get(id).id : null, (changed) => send('content-changed', changed)));
+  // Mod files dropped on the window: the preload script gives their paths, which only real dropped files have.
+  handle('mods:addFiles', (id, files) => {
+    if (!Array.isArray(files) || !files.length || files.some((file) => typeof file !== 'string' || !/\.jar$/i.test(file) || !fs.statSync(file, { throwIfNoEntry: false })?.isFile())) {
+      throw new Error('Only mod files (.jar) can be dropped here.');
+    }
+    return modrinth.addModFiles(id, files);
+  });
   // Windows locks the files a running game uses: for a shared pack, that's any running instance sharing it.
   handle('content:remove', (id, type, file) => {
     const shared = modrinth.isSharedContent(id, type);
