@@ -12,6 +12,7 @@ const minecraft = require('./core/minecraft');
 const modrinth = require('./core/modrinth');
 const modpacks = require('./core/modpacks');
 const sync = require('./core/sync');
+const fileTasks = require('./core/fileTasks');
 const icons = require('./core/icons');
 const servers = require('./core/servers');
 const serverTypes = require('./core/serverTypes');
@@ -74,6 +75,8 @@ app.on('second-instance', () => {
 let win = null;
 // Instance id -> child process (or null while it is still installing).
 const running = new Map();
+// Instances whose folders are being copied or deleted (switching sync, deleting: see registerIpc).
+const copying = new Set();
 
 const send = (channel, data) => {
   if (win && !win.isDestroyed()) win.webContents.send(channel, data);
@@ -193,6 +196,7 @@ function goOffline(id) {
 
 function assertIdle(id) {
   if (running.has(id)) throw new Error('Close the game first');
+  if (copying.has(id)) throw new Error('Wait until its folders have finished copying');
   if (modrinth.isWorking(id)) throw new Error('Wait until the mods have finished downloading');
 }
 
@@ -229,7 +233,7 @@ async function launch(id, options = {}) {
       log(id, `> Account protection needs Minecraft 1.16 or newer, so ${instance.gameVersion} gets your account's real token.`);
     }
     unpackIcons(); // a newer version may bring new items
-    sync.beforeLaunch(instance);
+    await fileTasks.run('beforeLaunch', instance);
     const fullscreenKey = launchSettings.borderless ? borderless.prepare(gameDir) : null; // after sync: it copies options.txt in
 
     log(id, `> Launching ${instance.name} (${instance.gameVersion} ${instance.loader}) as ${account.name}`);
@@ -252,17 +256,14 @@ async function launch(id, options = {}) {
       log(id, hide(line));
       if (loaded || !/Sound engine started|Error starting SoundSystem/.test(line)) return;
       loaded = true;
-      try {
-        sync.markLoaded(instance);
-      } catch (err) {
-        log(id, `> Could not note the settings the game loaded with: ${err.message}`);
-      }
+      fileTasks.run('markLoaded', instance)
+        .catch((err) => log(id, `> Could not note the settings the game loaded with: ${err.message}`));
     };
     readline.createInterface({ input: child.stdout }).on('line', onLine);
     readline.createInterface({ input: child.stderr }).on('line', onLine);
 
     let finished = false;
-    const finish = (message, failed = false) => {
+    const finish = async (message, failed = false) => {
       if (finished) return;
       finished = true;
       running.delete(id);
@@ -276,7 +277,7 @@ async function launch(id, options = {}) {
         log(id, `> Could not save play time: ${err.message}`);
       }
       try {
-        if (!sync.afterExit(instances.get(id))) log(id, "> Settings weren't saved: the game closed before it finished loading.");
+        if (!(await fileTasks.run('afterExit', id))) log(id, "> Settings weren't saved: the game closed before it finished loading.");
       } catch (err) {
         message = `Sync failed: ${err.message}`;
         failed = true;
@@ -329,8 +330,14 @@ function iconFor(item, save) {
   return name;
 }
 
+let startupDone = null;
+
 function registerIpc() {
-  const handle = (channel, fn) => ipcMain.handle(channel, (_event, ...args) => fn(...args));
+  // The page's requests wait for the tidying up at startup (see app.whenReady), which the window doesn't wait for.
+  const handle = (channel, fn) => ipcMain.handle(channel, async (_event, ...args) => {
+    await startupDone;
+    return fn(...args);
+  });
 
   handle('settings:get', () => settings.get());
   handle('window:popup', (open) => {
@@ -507,12 +514,18 @@ function registerIpc() {
   handle('instances:create', async ({ name, gameVersion, loader }) => {
     const loaderVersion = loader === 'fabric' ? await minecraft.latestFabricLoader(gameVersion) : null;
     const instance = instances.create({ name: name.trim() || gameVersion, gameVersion, loader, loaderVersion });
-    sync.linkFolders(instance); // synced from the start, so downloads land in the shared folders
+    await fileTasks.run('linkFolders', instance.id); // synced from the start, so downloads land in the shared folders
     return instance;
   });
+  // Deleting and switching sync can take a while (copying worlds): meanwhile the instance is busy, so it can't be
+  // played or changed, and mod installs wait their turn.
+  const copyingFor = (id, task) => {
+    copying.add(id);
+    return modrinth.exclusive(id, task).finally(() => copying.delete(id));
+  };
   handle('instances:delete', (id) => {
     assertIdle(id);
-    sync.deleteInstance(id);
+    return copyingFor(id, () => fileTasks.run('deleteInstance', id));
   });
   handle('instances:openFolder', (id) => shell.openPath(instances.gameDir(id)));
   handle('instances:setSync', (id, item, enabled) => {
@@ -520,7 +533,7 @@ function registerIpc() {
     // Switching off copies the shared files, and a running game holds some of them (an open world's session.lock).
     const users = enabled || !sync.FOLDERS.includes(item) ? [] : [...running.keys()].filter((other) => sync.isSynced(instances.get(other), item));
     if (users.length) throw new Error(`Close ${instances.get(users[0]).name} first: it's using the shared ${item}.`);
-    return sync.setSync(id, item, enabled);
+    return copyingFor(id, () => fileTasks.run('setSync', id, item, enabled));
   });
   handle('instances:launch', launch);
 
@@ -581,7 +594,7 @@ function registerIpc() {
       let result = ['idle', 'Modpack installed'];
       try {
         await modrinth.exclusive(id, () => modpacks.fillInstance(pack, (text, progress = null) => status(id, 'installing', text, progress)));
-        sync.linkFolders(instances.get(id));
+        await fileTasks.run('linkFolders', id);
       } catch (err) {
         result = ['error', `The modpack didn't finish installing (${err.message}). Delete this instance and try again.`];
       }
@@ -842,9 +855,9 @@ function startUpdateChecks() {
 app.whenReady().then(() => {
   if (!firstInstance) return;
   serveAssets();
-  sync.relinkAll();
-  modrinth.settleAll(); // pack details move to the shared folder they belong with
-  store.prune(); // mods and packs no instance has any more (before anything downloads)
+  // Relinking the shared folders, tidying pack details and deleting stored files no instance uses: in the file worker,
+  // while the window opens. Nothing downloads before it's done: the page's requests wait for it (registerIpc).
+  startupDone = fileTasks.run('startup').catch((err) => console.error('Could not tidy up at startup:', err.message));
   unpackIcons();
   if (safeStorage.isEncryptionAvailable()) {
     const cipher = {
@@ -858,7 +871,7 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
   startUpdateChecks();
-  setTimeout(() => mergeStoredFiles().catch((err) => console.error('Could not merge mod copies:', err.message)), 5000);
+  startupDone.then(() => setTimeout(() => mergeStoredFiles().catch((err) => console.error('Could not merge mod copies:', err.message)), 5000));
 });
 
 app.on('window-all-closed', () => app.quit());
@@ -868,7 +881,17 @@ let quitting = false;
 // The relay must never outlive the launcher.
 app.on('will-quit', () => playit.stopAll());
 
+// Copying a shared folder (switching sync, a game's settings) finishes first: cut off, it would leave half a copy.
+let filesSettled = false;
 app.on('before-quit', (event) => {
+  if (!filesSettled) {
+    event.preventDefault();
+    fileTasks.whenIdle().finally(() => {
+      filesSettled = true;
+      app.quit();
+    });
+    return;
+  }
   if (quitting || !servers.list().some((s) => servers.isRunning(s.id))) return;
   event.preventDefault();
   quitting = true;

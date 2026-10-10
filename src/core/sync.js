@@ -221,8 +221,8 @@ function setSync(id, item, enabled) {
   } else if (enabled) {
     shareSettings(instance, item); // switched off, the instance simply keeps the copy it has
   }
-  instance.sync = { ...instance.sync, [item]: enabled };
-  return instances.save(instance);
+  // Read again: copying can take a while, and the instance may have been renamed meanwhile (see fileTasks.js).
+  return instances.patch(id, { sync: { ...instances.get(id).sync, [item]: enabled } });
 }
 
 function beforeLaunch(instance) {
