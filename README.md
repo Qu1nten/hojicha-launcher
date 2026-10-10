@@ -10,20 +10,29 @@
 
 > **NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/screenshot-instances.png" alt="An instance's installed mods, resource packs and shaders, with an update ready for one mod"><br><sub><b>Instances</b>: mods, packs and shaders in one list</sub></td>
-    <td width="50%"><img src="docs/screenshot-servers.png" alt="A running Paper server's console, with friends joining and chatting"><br><sub><b>Servers</b>: run one, and friends join over the internet</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshot-schematics.png" alt="Schematics shown as tiles with 3D pictures of each build"><br><sub><b>Schematics</b>: Litematica, WorldEdit and Axiom files in 3D</sub></td>
-    <td><img src="docs/screenshot-skins.png" alt="The skin window: a 3D model, saved skins and the cape"><br><sub><b>Skins and capes</b>: change them with a 3D preview</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshot-settings.png" alt="Settings: memory, Java, borderless window and account protection"><br><sub><b>Settings</b>: memory, Java, borderless window and account protection</sub></td>
-    <td><img src="docs/screenshot-matcha.png" alt="The light Matcha theme, browsing Modrinth for mods"><br><sub><b>Matcha</b>: the light theme, here browsing Modrinth</sub></td>
-  </tr>
-</table>
+**Instances**: mods, packs and shaders in one list
+
+![An instance's installed mods, resource packs and shaders, with an update ready for one mod](docs/screenshot-instances.png)
+
+**Servers**: run one, and friends join over the internet
+
+![A running Paper server's console, with friends joining and chatting](docs/screenshot-servers.png)
+
+**Schematics**: Litematica, WorldEdit and Axiom files in 3D
+
+![A temple schematic open in the 3D viewer](docs/screenshot-viewer.png)
+
+**Skins and capes**: change them with a 3D preview
+
+![The skin window: a 3D model, saved skins and the cape](docs/screenshot-skins.png)
+
+**Settings**: memory, Java, borderless window and account protection
+
+![Settings: memory, Java, borderless window and account protection](docs/screenshot-settings.png)
+
+**Two themes**: dark Hojicha and light Matcha
+
+![The Schematics view split in two: the dark Hojicha theme on the left, the light Matcha theme on the right](docs/screenshot-themes.png)
 
 ## Features
 
