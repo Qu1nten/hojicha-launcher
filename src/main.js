@@ -525,6 +525,7 @@ function registerIpc() {
   };
   handle('instances:delete', (id) => {
     assertIdle(id);
+    modrinth.watchContent(null); // a watched folder can't be deleted on Windows
     return copyingFor(id, () => fileTasks.run('deleteInstance', id));
   });
   handle('instances:openFolder', (id) => shell.openPath(instances.gameDir(id)));
