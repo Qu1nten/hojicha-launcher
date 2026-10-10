@@ -38,7 +38,8 @@
 - **Screenshots**: F2 screenshots are also copied to the clipboard
 - **Borderless window**: the game fills the screen without real fullscreen, so you can click to another monitor without it minimising
 - **Game log**: the whole log of each game, with access tokens hidden
-
+- **Skins and capes**: change your skin and cape with a 3D preview (with an elytra and a walking animation); saved skins carry across accounts, and you can drop skin files on the window to add them
+  
 ### Servers
 
 - **Run a server**: Paper, Purpur or Fabric, from the same launcher
@@ -46,9 +47,8 @@
 - **Console, settings and files**: type commands, change server.properties, and edit the server's config files
 
 ### Building
-
 - **Schematics**: view Litematica, WorldEdit and Axiom files (.litematic, .schem, .schematic, .bp) in 3D, filter them by type and organise them in folders; drop files on the launcher to add them
-- **Skins and capes**: change your skin and cape with a 3D preview (with an elytra and a walking animation); saved skins carry across accounts, and you can drop skin files on the window to add them
+
 
 ### Looks and safety
 
