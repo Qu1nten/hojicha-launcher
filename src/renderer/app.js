@@ -199,6 +199,8 @@ function draggableRow(row, kind, thing) {
   });
   row.addEventListener('dragend', () => {
     Object.assign(sidebarDrag, { kind: null, id: null });
+    row.classList.remove('dragging');
+    showDrop(kind, undefined); // rows are kept when redrawn, so their drag marks are cleared here
     renderSidebar();
   });
 }
@@ -253,39 +255,43 @@ for (const [kind, { list: selector, items, set, save, refresh }] of Object.entri
   });
 }
 
-function renderSidebar() {
-  // The rows are rebuilt; keep keyboard focus on the same row and button (opening a row redraws the list).
-  const focused = document.activeElement?.closest?.('#sidebar li[data-key]');
-  const focusKey = focused?.dataset.key;
+// Puts the rows in a sidebar list, keeping each row whose look hasn't changed: status updates come many times a
+// second while a game launches, and rebuilding every row (and its icon) for each one made the sidebar flicker.
+function updateSideList(list, kind, things, describe, open) {
+  const old = new Map([...list.children].map((row) => [row.dataset.key, row]));
+  const rows = things.map((thing) => {
+    const { active, sub, running } = describe(thing);
+    const look = JSON.stringify([thing.name, thing.iconUrl, active, sub, running]);
+    const kept = old.get(`${kind}:${thing.id}`);
+    if (kept?.look === look) return kept;
+    const row = sideRow(kind, thing, active, sub, running, () => open(thing.id));
+    row.look = look;
+    draggableRow(row, kind, thing);
+    return row;
+  });
+  if (rows.length === list.children.length && rows.every((row, i) => row === list.children[i])) return;
+  // Some rows are new: keep keyboard focus on the same row and button (opening a row redraws it).
+  const focusKey = document.activeElement?.closest?.('li[data-key]')?.dataset.key;
   const focusClass = document.activeElement?.classList.contains('item-icon') ? 'item-icon' : 'side-select';
+  const hadFocus = list.contains(document.activeElement);
+  list.replaceChildren(...rows);
+  if (hadFocus) rows.find((row) => row.dataset.key === focusKey)?.querySelector(`.${focusClass}`)?.focus();
+}
+
+function renderSidebar() {
   if (sidebarDrag.kind !== 'instance') {
-    $('#instance-list').replaceChildren(...state.instances.map((inst) => {
-      const row = sideRow(
-        'instance', inst,
-        state.view === 'instance' && inst.id === state.selected,
-        loaderLabel(inst),
-        state.status[inst.id]?.state === 'running' ? 'Playing' : '',
-        () => selectInstance(inst.id),
-      );
-      draggableRow(row, 'instance', inst);
-      return row;
-    }));
+    updateSideList($('#instance-list'), 'instance', state.instances, (inst) => ({
+      active: state.view === 'instance' && inst.id === state.selected,
+      sub: loaderLabel(inst),
+      running: state.status[inst.id]?.state === 'running' ? 'Playing' : '',
+    }), selectInstance);
   }
   if (sidebarDrag.kind !== 'server') {
-    $('#server-list').replaceChildren(...state.servers.map((server) => {
-      const row = sideRow(
-        'server', server,
-        state.view === 'server' && server.id === state.selectedServer,
-        `${serverFlavor(server)} ${server.mcVersion}`,
-        ['starting', 'running', 'stopping'].includes(state.serverStatus[server.id]?.state) ? 'Running' : '',
-        () => selectServer(server.id),
-      );
-      draggableRow(row, 'server', server);
-      return row;
-    }));
-  }
-  if (focusKey) {
-    [...document.querySelectorAll('#sidebar li[data-key]')].find((li) => li.dataset.key === focusKey)?.querySelector(`.${focusClass}`)?.focus();
+    updateSideList($('#server-list'), 'server', state.servers, (server) => ({
+      active: state.view === 'server' && server.id === state.selectedServer,
+      sub: `${serverFlavor(server)} ${server.mcVersion}`,
+      running: ['starting', 'running', 'stopping'].includes(state.serverStatus[server.id]?.state) ? 'Running' : '',
+    }), selectServer);
   }
   $('#open-settings').classList.toggle('active', state.view === 'settings');
   $('#schematics-row').classList.toggle('active', state.view === 'schematics');
