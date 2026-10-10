@@ -245,8 +245,7 @@ function all() {
     if (fs.existsSync(paths.icons)) {
       for (const file of fs.readdirSync(paths.icons).sort()) {
         if (!file.endsWith('.png')) continue;
-        const data = fs.readFileSync(path.join(paths.icons, file)).toString('base64');
-        cache.set(file.slice(0, -4), `data:image/png;base64,${data}`);
+        cache.set(file.slice(0, -4), `hojicha://icon/${encodeURIComponent(file)}`); // served by main.js
       }
     }
   }
@@ -275,7 +274,7 @@ function label(name) {
 // Every icon, grouped by category in ORDER (see sortKey for the order within each).
 function list() {
   return [...all()]
-    .map(([name, dataUrl]) => ({ name, label: label(name), url: dataUrl, key: sortKey(name) }))
+    .map(([name, url]) => ({ name, label: label(name), url, key: sortKey(name) }))
     .sort((a, b) => ORDER.indexOf(a.key.category) - ORDER.indexOf(b.key.category)
       || a.key.group - b.key.group
       || a.key.material - b.key.material

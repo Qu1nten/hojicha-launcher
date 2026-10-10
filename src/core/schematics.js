@@ -116,8 +116,7 @@ function list() {
       let preview = null;
       try {
         const info = JSON.parse(fs.readFileSync(previewFile(key, 'json'), 'utf8'));
-        const png = fs.readFileSync(previewFile(key, 'png'));
-        preview = { ...info, url: `data:image/png;base64,${png.toString('base64')}` };
+        if (fs.existsSync(previewFile(key, 'png'))) preview = { ...info, url: `hojicha://preview/${key}.png` }; // served by main.js
       } catch {
         // not drawn yet
       }

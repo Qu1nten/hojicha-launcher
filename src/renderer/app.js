@@ -2880,6 +2880,7 @@ const schem = {
   resources: null, // Promise of the block resources, or of null without a downloaded game
   previewRun: 0,
   drawing: null, // the one whose picture is being drawn: { path, fraction }
+  seen: null, // the list as loadSchematics() last got it, as JSON
 };
 
 function openSchematics() {
@@ -2890,10 +2891,15 @@ function openSchematics() {
   loadSchematics();
 }
 
-async function loadSchematics() {
-  showSchemNote('');
+// whenChanged: only redraw if the files are different from the last look (the window getting focus looks again).
+async function loadSchematics({ whenChanged = false } = {}) {
   try {
-    takeSchematicList(await api.listSchematics());
+    const list = await api.listSchematics();
+    const seen = JSON.stringify(list);
+    if (whenChanged && schem.items && seen === schem.seen) return; // keeps the tiles, and the pictures being drawn
+    showSchemNote('');
+    takeSchematicList(list);
+    schem.seen = seen;
   } catch (err) {
     schem.items = schem.items || [];
     showSchemNote(errorText(err));
@@ -2907,6 +2913,7 @@ async function loadSchematics() {
 // A new list from main.js ({ items, folders }, see core/schematics.js): picked ones that are gone (deleted, moved)
 // aren't picked any more.
 function takeSchematicList(list) {
+  schem.seen = null; // what loadSchematics() last saw is out of date
   schem.items = list.items;
   schem.folders = list.folders;
   const paths = new Set(schem.items.map((item) => item.path));
@@ -5004,7 +5011,7 @@ $('#schem-rename').onblur = () => finishSchematicRename(true);
 $('#schem-done').onclick = () => $('#schem-dialog').close();
 // Back from the game (or a file browser) with new schematics: look again.
 window.addEventListener('focus', () => {
-  if (state.view === 'schematics' && !document.querySelector('dialog[open]')) loadSchematics();
+  if (state.view === 'schematics' && !document.querySelector('dialog[open]')) loadSchematics({ whenChanged: true });
 });
 
 (async () => {

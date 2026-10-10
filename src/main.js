@@ -1,7 +1,8 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, safeStorage, protocol, net } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const readline = require('readline');
 const { spawn } = require('child_process');
 const paths = require('./core/paths');
@@ -50,6 +51,19 @@ app.setPath('userData', paths.electron);
 // brings the running window to the front instead (the lock belongs to the userData folder set just above).
 const firstInstance = app.requestSingleInstanceLock();
 if (!firstInstance) app.quit();
+// Item icons and schematic pictures are served to the page from disk as hojicha://icon/<name>.png and
+// hojicha://preview/<key>.png, instead of being read and sent over as base64 every time a list is asked for.
+protocol.registerSchemesAsPrivileged([{ scheme: 'hojicha', privileges: { standard: true, secure: true } }]);
+const ASSET_FOLDERS = { icon: () => paths.icons, preview: () => paths.schematicPreviews };
+function serveAssets() {
+  protocol.handle('hojicha', (request) => {
+    const { host, pathname } = new URL(request.url);
+    const name = decodeURIComponent(pathname.slice(1));
+    if (!ASSET_FOLDERS[host] || !/^[\w-]+\.png$/.test(name)) return new Response(null, { status: 404 });
+    return net.fetch(pathToFileURL(path.join(ASSET_FOLDERS[host](), name)).href);
+  });
+}
+
 app.on('second-instance', () => {
   if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();
@@ -827,6 +841,7 @@ function startUpdateChecks() {
 
 app.whenReady().then(() => {
   if (!firstInstance) return;
+  serveAssets();
   sync.relinkAll();
   modrinth.settleAll(); // pack details move to the shared folder they belong with
   store.prune(); // mods and packs no instance has any more (before anything downloads)
