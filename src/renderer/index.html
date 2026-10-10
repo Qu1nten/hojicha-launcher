@@ -28,7 +28,7 @@
     </div>
   </header>
 
-  <!-- Over the launcher while schematic files are dragged onto it: dropped, they go to the Schematics (app.js). -->
+  <!-- Over the launcher while schematic files are dragged onto it: dropped, they go to the Schematics (app/drop.js). -->
   <div id="app-drop" class="app-drop" aria-hidden="true"><span>Drop schematics to add them, or a modpack to install it</span></div>
 
   <div class="app">
@@ -550,14 +550,14 @@
         <button type="button" id="skins-save" class="primary">Save</button>
       </div>
     </div>
-    <!-- Over the window while skin files are dragged onto it (app.js). -->
+    <!-- Over the window while skin files are dragged onto it (app/skins.js). -->
     <div class="skin-drop" aria-hidden="true">
       <span class="add-plus">+</span>
       <span>Drop to add to saved skins</span>
     </div>
   </dialog>
 
-  <!-- A schematic in 3D, big: drag to turn, right-drag to move, scroll to zoom (app.js, renderer/schematics.js).
+  <!-- A schematic in 3D, big: drag to turn, right-drag to move, scroll to zoom (app/schematicViewer.js, renderer/schematics.js).
        The bar fills while it's being built. -->
   <dialog id="schem-dialog" aria-label="Schematic">
     <div class="dialog-body">
@@ -685,7 +685,7 @@
     </div>
   </dialog>
 
-  <!-- A question before something that can't be undone (askConfirm in app.js). The safe answer comes first, so
+  <!-- A question before something that can't be undone (askConfirm in app/core.js). The safe answer comes first, so
        it has focus and Enter or Escape never removes anything. -->
   <!-- What can be done to a schematic or folder: opened by right-clicking it, where it was clicked. -->
   <div id="schem-menu" class="menu schem-menu" role="menu" hidden></div>
@@ -775,6 +775,6 @@
   <script src="vendor/skinview3d.js"></script>
   <script src="vendor/deepslate.js"></script>
   <script src="schematics.js"></script>
-  <script src="app.js"></script>
+  <script type="module" src="app/main.js"></script>
 </body>
 </html>

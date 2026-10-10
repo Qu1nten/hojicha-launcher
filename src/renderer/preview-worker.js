@@ -1,5 +1,5 @@
 // Draws the pictures for the Schematics view's tiles, away from the page so it stays smooth while they're made
-// (app.js sends the schematics, read by main.js). Drawing is the same as for the big view (schematics.js), on a canvas
+// (app/schematics.js sends the schematics, read by main.js). Drawing is the same as for the big view (schematics.js), on a canvas
 // of its own here.
 importScripts('vendor/deepslate.js', 'schematics.js');
 

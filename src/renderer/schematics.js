@@ -1,4 +1,4 @@
-// The schematics viewer's drawing (the view itself is in app.js): schematics, read by main.js (core/schematicFile.js),
+// The schematics viewer's drawing (the view itself is in app/schematics.js and app/schematicViewer.js): schematics, read by main.js (core/schematicFile.js),
 // drawn in 3D by deepslate (vendor/deepslate.js) with the game's own block models and textures, which main.js unpacks
 // from a downloaded game (core/blocks.js).
 (() => {

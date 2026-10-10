@@ -622,7 +622,7 @@ main {
 
 /* While an instance is prepared, Play fills like a cup: the tea rises from left to right, roasting from leaf green
    to amber to brown, and stays full while the game runs. The fill carries its own copy of the label, clipped to the
-   same edge, so the text keeps its contrast on both sides. app.js pours it frame by frame (no transition here) and
+   same edge, so the text keeps its contrast on both sides. app/instance.js pours it frame by frame (no transition here) and
    sets --play-progress, --play-fill and --play-fill-text. */
 .play-fill {
   position: absolute;
@@ -680,7 +680,7 @@ button.play:not(:disabled) .play-fill { display: none; }
 .tab-split[hidden] { display: none; }
 .tab-split > :not(.tab-scroll) { flex-shrink: 0; }
 .tab-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
-/* Once scrolled, the rows fade out just before they reach the bar instead of being cut off (app.js sets it). */
+/* Once scrolled, the rows fade out just before they reach the bar instead of being cut off (app/instance.js sets it). */
 .tab-scroll.scrolled { mask-image: linear-gradient(to bottom, transparent, #000 16px); }
 
 .intro { color: var(--steam-dim); max-width: 64ch; padding: 10px 0 6px; font-size: var(--text-s); }
