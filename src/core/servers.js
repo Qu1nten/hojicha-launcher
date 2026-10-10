@@ -238,11 +238,6 @@ function isRunning(id) {
   return processes.has(id);
 }
 
-function address(id) {
-  const proc = processes.get(id);
-  return proc ? `${HOST}:${proc.port}` : null;
-}
-
 // Starts the server (if needed) and resolves once it has finished loading.
 // opUsername, if given, is made operator once the server is up so FAWE/Arceon commands work.
 function start(id, { javaPath, opUsername } = {}) {
@@ -394,6 +389,6 @@ function stopAll() {
 
 module.exports = {
   setHooks, list, reorder, get, add, create, remove, update, setPublic, addToWhitelist, removeFromWhitelist,
-  start, stop, stopAll, command, isRunning, address, restoreAllPending,
+  start, stop, stopAll, command, isRunning, restoreAllPending,
   port: (id) => readPort(get(id).dir),
 };
