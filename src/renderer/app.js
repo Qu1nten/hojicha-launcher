@@ -1333,7 +1333,6 @@ function renderServer() {
     : allPlaying ? `Your ${server.mcVersion} instances are already playing` : '';
 
   renderOnline();
-  renderServerLog(false);
 }
 
 // ---------- Online play ----------
@@ -1466,7 +1465,7 @@ $('#srv-public').onchange = async (event) => {
   try {
     await api.stopServer(server.id);
     await updateServer(api.setServerPublic(server.id, on));
-    state.serverLogs[server.id] = [];
+    clearServerLog(server.id);
     await api.startServer(server.id);
   } catch (err) {
     showServerError(server.id, err);
@@ -1671,7 +1670,7 @@ async function restartServer(button, messageNode) {
   button.disabled = true;
   setMessage(messageNode, 'Restarting…');
   try {
-    state.serverLogs[id] = [];
+    clearServerLog(id);
     await api.restartServer(id);
     setMessage(messageNode, 'Restarted with the new settings.', 'ok');
     button.hidden = true;
@@ -1825,6 +1824,12 @@ function renderServerLog(forceBottom) {
   const atBottom = forceBottom || scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 20;
   logEl.textContent = (state.serverLogs[state.selectedServer] || []).join('\n');
   if (atBottom) scroller.scrollTop = scroller.scrollHeight;
+}
+
+// A server (re)starting begins a new console.
+function clearServerLog(id) {
+  state.serverLogs[id] = [];
+  if (id === state.selectedServer) renderServerLog(true);
 }
 
 function showServerError(id, err) {
@@ -4402,11 +4407,25 @@ api.onServerStatus(({ id, state: s, text }) => {
   if (state.view === 'server' && id === state.selectedServer) renderServer();
 });
 
-api.onServerLog(({ id, line }) => {
+// Server output arrives in batches too, and only the new lines are added to the page. Old lines are dropped in one go
+// once there are SERVER_LOG_SLACK too many, so the console is only redrawn whole now and then.
+const SERVER_LOG_SLACK = 500;
+api.onServerLog(({ id, lines: added }) => {
   const lines = (state.serverLogs[id] ??= []);
-  lines.push(line.replace(/\x1b\[[0-9;]*m/g, '')); // strip console colour codes
-  if (lines.length > MAX_SERVER_LOG_LINES) lines.splice(0, lines.length - MAX_SERVER_LOG_LINES);
-  if (state.view === 'server' && id === state.selectedServer) renderServerLog(false);
+  const clean = added.map((line) => line.replace(/\x1b\[[0-9;]*m/g, '')); // strip console colour codes
+  for (const line of clean) lines.push(line);
+  const trim = lines.length > MAX_SERVER_LOG_LINES + SERVER_LOG_SLACK;
+  if (trim) lines.splice(0, lines.length - MAX_SERVER_LOG_LINES);
+  if (state.view !== 'server' || id !== state.selectedServer) return;
+  if (trim) {
+    renderServerLog(false);
+    return;
+  }
+  const logEl = $('#srv-log');
+  const scroller = logEl.parentElement;
+  const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 20;
+  logEl.append(`${lines.length > clean.length ? '\n' : ''}${clean.join('\n')}`);
+  if (atBottom) scroller.scrollTop = scroller.scrollHeight;
 });
 
 // Game output arrives in batches. Only the new lines are added to the page: redrawing a long log for every batch
@@ -4816,7 +4835,7 @@ $('#srv-toggle').onclick = async () => {
   try {
     if (serverState(id) === 'running') await api.stopServer(id);
     else {
-      state.serverLogs[id] = [];
+      clearServerLog(id);
       await api.startServer(id);
     }
   } catch (err) {
@@ -4832,7 +4851,7 @@ function joinable(server) {
 // Starts the server if needed and launches the instance straight into it.
 async function joinWith(instanceId) {
   const id = state.selectedServer;
-  if (serverState(id) !== 'running') state.serverLogs[id] = [];
+  if (serverState(id) !== 'running') clearServerLog(id);
   state.logs[instanceId] = [];
   if (instanceId === state.selected && state.tab === 'log') renderLog();
   try {

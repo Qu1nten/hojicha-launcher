@@ -95,24 +95,28 @@ const status = (id, state, text = '', progress = null) => {
     entry.pending = null;
   }, Math.max(0, wait));
 };
-// Game output can run to thousands of lines a second while mods load: it goes to the page in batches instead of a
-// message per line.
+// Game output can run to thousands of lines a second while mods load, and a server prints hundreds as it starts: both
+// go to the page in batches instead of a message per line.
 const LOG_INTERVAL = 50;
-const pendingLogs = new Map(); // instance id -> lines not sent yet
-let logTimer = null;
-const log = (id, line) => {
-  if (!pendingLogs.has(id)) pendingLogs.set(id, []);
-  pendingLogs.get(id).push(line);
-  logTimer ??= setTimeout(() => {
-    logTimer = null;
-    for (const [logId, lines] of pendingLogs) send('log', { id: logId, lines });
-    pendingLogs.clear();
-  }, LOG_INTERVAL);
-};
+function logBatcher(channel) {
+  const pending = new Map(); // id -> lines not sent yet
+  let timer = null;
+  return (id, line) => {
+    if (!pending.has(id)) pending.set(id, []);
+    pending.get(id).push(line);
+    timer ??= setTimeout(() => {
+      timer = null;
+      for (const [logId, lines] of pending) send(channel, { id: logId, lines });
+      pending.clear();
+    }, LOG_INTERVAL);
+  };
+}
+const log = logBatcher('log');
 
 // Server consoles have no account token to look for, but a plugin may still print a token it was given.
 const hideSecrets = redactor();
-const serverLog = (id, line) => send('server-log', { id, line: hideSecrets(line) });
+const sendServerLog = logBatcher('server-log');
+const serverLog = (id, line) => sendServerLog(id, hideSecrets(line));
 
 servers.setHooks({
   status: (id, state, text = '') => {
